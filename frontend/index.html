@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal TCC - Upload CSV</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Portal TCC</h1>
+            <p>Sistema de Upload de Dados CSV</p>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <h2>Enviar Arquivo CSV</h2>
+
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <p>Arraste o arquivo CSV aqui ou clique para selecionar</p>
+                    <input type="file" id="csvFile" accept=".csv" hidden>
+                    <button class="btn-select" id="btnSelect">Selecionar Arquivo</button>
+                </div>
+
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <p><strong>Arquivo selecionado:</strong> <span id="fileName"></span></p>
+                    <p><strong>Tamanho:</strong> <span id="fileSize"></span></p>
+                </div>
+
+                <button class="btn-upload" id="btnUpload" disabled>Enviar para Banco de Dados</button>
+
+                <div class="message" id="message"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 Portal TCC - Todos os direitos reservados</p>
+        </footer>
+    </div>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
