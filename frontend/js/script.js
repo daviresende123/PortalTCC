@@ -66,8 +66,8 @@ function handleFileSelect(file) {
         return;
     }
 
-    // Validar se é arquivo CSV
-    if (!file.name.endsWith('.csv')) {
+    // Validar se é arquivo CSV (case-insensitive)
+    if (!file.name.toLowerCase().endsWith('.csv')) {
         showMessage('Erro: Por favor, selecione um arquivo CSV válido.', 'error');
         resetFileSelection();
         return;
