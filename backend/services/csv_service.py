@@ -27,8 +27,8 @@ class CSVService:
         try:
             logger.info(f"Processando arquivo CSV: {filename}")
 
-            # Tentar ler como CSV
-            df = pd.read_csv(BytesIO(file_content))
+            # Tentar ler como CSV com detecção automática de delimitador
+            df = pd.read_csv(BytesIO(file_content), sep=None, engine='python')
 
             # Validar se tem dados
             if df.empty:
@@ -70,5 +70,8 @@ class CSVService:
 
         # Limpar nomes de colunas (remover espaços extras)
         df.columns = df.columns.str.strip()
+
+        # Resetar índice para não salvar no Delta Lake
+        df = df.reset_index(drop=True)
 
         return df
