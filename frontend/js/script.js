@@ -143,8 +143,8 @@ btnUpload.addEventListener('click', async () => {
         const formData = new FormData();
         formData.append('csvFile', selectedFile);
 
-        // Enviar para o backend (AJUSTAR URL quando backend estiver pronto)
-        const response = await fetch('/api/upload', {
+        // Enviar para o backend
+        const response = await fetch('http://localhost:8000/api/upload', {
             method: 'POST',
             body: formData
         });
