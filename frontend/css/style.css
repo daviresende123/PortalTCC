@@ -1,4 +1,54 @@
-/* Reset e configurações gerais */
+/* ===================================
+   Variáveis CSS - Paleta Cafeeira
+   =================================== */
+:root {
+    /* Cores do café */
+    --coffee-dark: #3E2723;
+    --coffee-medium: #5D4037;
+    --coffee-light: #8D6E63;
+
+    /* Cores da plantação */
+    --plant-green: #2E7D32;
+    --plant-green-light: #388E3C;
+    --plant-green-lighter: #4CAF50;
+
+    /* Tons terrosos */
+    --earth-light: #EFEBE9;
+    --earth-medium: #D7CCC8;
+    --earth-dark: #A1887F;
+
+    /* Cores de texto */
+    --text-dark: #3E2723;
+    --text-medium: #5D4037;
+    --text-light: #666;
+
+    /* Cores de fundo */
+    --bg-white: #FFFFFF;
+    --bg-light: #FAFAFA;
+
+    /* Sombras */
+    --shadow-light: rgba(62, 39, 35, 0.1);
+    --shadow-medium: rgba(62, 39, 35, 0.2);
+    --shadow-dark: rgba(62, 39, 35, 0.3);
+
+    /* Gradientes */
+    --gradient-main: linear-gradient(135deg, var(--plant-green) 0%, var(--coffee-medium) 100%);
+    --gradient-hover: linear-gradient(135deg, var(--plant-green-light) 0%, var(--coffee-dark) 100%);
+
+    /* Bordas */
+    --border-radius-sm: 10px;
+    --border-radius-md: 15px;
+    --border-radius-lg: 20px;
+    --border-radius-full: 50px;
+
+    /* Transições */
+    --transition-fast: all 0.2s ease;
+    --transition-normal: all 0.3s ease;
+}
+
+/* ===================================
+   Reset e Configurações Gerais
+   =================================== */
 * {
     margin: 0;
     padding: 0;
@@ -7,7 +57,7 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--gradient-main);
     min-height: 100vh;
     display: flex;
     justify-content: center;
@@ -16,18 +66,20 @@ body {
 }
 
 .container {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    background: var(--bg-white);
+    border-radius: var(--border-radius-lg);
+    box-shadow: 0 20px 60px var(--shadow-dark);
     max-width: 800px;
     width: 100%;
     overflow: hidden;
 }
 
-/* Cabeçalho */
+/* ===================================
+   Cabeçalho
+   =================================== */
 header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: var(--gradient-main);
+    color: var(--bg-white);
     padding: 40px 30px;
     text-align: center;
 }
@@ -40,42 +92,46 @@ header h1 {
 
 header p {
     font-size: 1.1em;
-    opacity: 0.9;
+    opacity: 0.95;
 }
 
-/* Conteúdo principal */
+/* ===================================
+   Conteúdo Principal
+   =================================== */
 main {
     padding: 40px 30px;
 }
 
 .upload-section h2 {
-    color: #333;
+    color: var(--text-dark);
     margin-bottom: 30px;
     text-align: center;
     font-size: 1.8em;
 }
 
-/* Área de upload */
+/* ===================================
+   Área de Upload
+   =================================== */
 .upload-area {
-    border: 3px dashed #667eea;
-    border-radius: 15px;
+    border: 3px dashed var(--plant-green);
+    border-radius: var(--border-radius-md);
     padding: 60px 30px;
     text-align: center;
-    background: #f8f9ff;
-    transition: all 0.3s ease;
+    background: var(--earth-light);
+    transition: var(--transition-normal);
     cursor: pointer;
 }
 
 .upload-area:hover {
-    border-color: #764ba2;
-    background: #f0f2ff;
+    border-color: var(--coffee-medium);
+    background: var(--earth-medium);
     transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+    box-shadow: 0 10px 30px var(--shadow-medium);
 }
 
 .upload-area.dragover {
-    border-color: #764ba2;
-    background: #e8ebff;
+    border-color: var(--plant-green-light);
+    background: var(--earth-medium);
     transform: scale(1.02);
 }
 
@@ -85,31 +141,37 @@ main {
 }
 
 .upload-area p {
-    color: #666;
+    color: var(--text-light);
     font-size: 1.1em;
     margin-bottom: 20px;
 }
 
-/* Botões */
-.btn-select, .btn-upload {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+/* ===================================
+   Botões
+   =================================== */
+.btn-select,
+.btn-upload {
+    background: var(--gradient-main);
+    color: var(--bg-white);
     border: none;
     padding: 15px 40px;
     font-size: 1.1em;
-    border-radius: 50px;
+    border-radius: var(--border-radius-full);
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: var(--transition-normal);
     font-weight: 600;
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 5px 15px var(--shadow-medium);
 }
 
-.btn-select:hover, .btn-upload:hover:not(:disabled) {
+.btn-select:hover,
+.btn-upload:hover:not(:disabled) {
+    background: var(--gradient-hover);
     transform: translateY(-3px);
-    box-shadow: 0 10px 25px rgba(102, 126, 234, 0.5);
+    box-shadow: 0 10px 25px var(--shadow-dark);
 }
 
-.btn-select:active, .btn-upload:active:not(:disabled) {
+.btn-select:active,
+.btn-upload:active:not(:disabled) {
     transform: translateY(-1px);
 }
 
@@ -119,22 +181,25 @@ main {
 }
 
 .btn-upload:disabled {
-    background: #ccc;
+    background: var(--earth-dark);
     cursor: not-allowed;
     box-shadow: none;
+    opacity: 0.6;
 }
 
-/* Informações do arquivo */
+/* ===================================
+   Informações do Arquivo
+   =================================== */
 .file-info {
-    background: #f0f2ff;
-    border-left: 4px solid #667eea;
+    background: var(--earth-light);
+    border-left: 4px solid var(--plant-green);
     padding: 20px;
     margin-top: 30px;
-    border-radius: 10px;
+    border-radius: var(--border-radius-sm);
 }
 
 .file-info p {
-    color: #333;
+    color: var(--text-dark);
     margin-bottom: 10px;
     font-size: 1em;
 }
@@ -144,15 +209,17 @@ main {
 }
 
 .file-info span {
-    color: #667eea;
+    color: var(--coffee-medium);
     font-weight: 600;
 }
 
-/* Mensagens */
+/* ===================================
+   Mensagens
+   =================================== */
 .message {
     margin-top: 20px;
     padding: 15px;
-    border-radius: 10px;
+    border-radius: var(--border-radius-sm);
     text-align: center;
     font-weight: 600;
     display: none;
@@ -173,22 +240,26 @@ main {
 }
 
 .message.info {
-    background: #d1ecf1;
-    color: #0c5460;
-    border: 1px solid #bee5eb;
+    background: #e7f3e8;
+    color: var(--plant-green);
+    border: 1px solid var(--plant-green-light);
     display: block;
 }
 
-/* Rodapé */
+/* ===================================
+   Rodapé
+   =================================== */
 footer {
-    background: #f8f9fa;
+    background: var(--bg-light);
     padding: 20px;
     text-align: center;
-    color: #666;
+    color: var(--text-light);
     font-size: 0.9em;
 }
 
-/* Responsividade */
+/* ===================================
+   Responsividade
+   =================================== */
 @media (max-width: 600px) {
     header h1 {
         font-size: 2em;
@@ -202,7 +273,8 @@ footer {
         padding: 40px 20px;
     }
 
-    .btn-select, .btn-upload {
+    .btn-select,
+    .btn-upload {
         padding: 12px 30px;
         font-size: 1em;
     }
