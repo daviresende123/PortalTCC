@@ -1,2 +1,34 @@
 # Claude Code documentation
 CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Ambiente
+.env
+
+# Delta Lake
+backend/data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db

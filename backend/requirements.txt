@@ -1,0 +1,19 @@
+# FastAPI e servidor
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Delta Lake
+deltalake==0.15.0
+
+# Processamento de dados
+pandas==2.2.0
+pyarrow==15.0.0
+
+# Validação e configuração
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# CORS
+fastapi-cors==0.0.6
