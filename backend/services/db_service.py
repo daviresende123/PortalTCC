@@ -61,7 +61,7 @@ class DatabaseService:
         await self.session.execute(
             text(
                 "INSERT INTO records (file_id, data) "
-                "VALUES (:file_id, :data::jsonb)"
+                "VALUES (:file_id, CAST(:data AS jsonb))"
             ),
             records,
         )
