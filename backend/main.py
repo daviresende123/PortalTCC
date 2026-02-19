@@ -1,6 +1,8 @@
 """Aplicação principal FastAPI."""
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from db.connection import init_db
 from routes import upload
 from config import settings
 import logging
@@ -13,11 +15,22 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize the database on startup."""
+    logger.info("Initializing database...")
+    await init_db()
+    logger.info("Database ready")
+    yield
+
+
 # Criar aplicação FastAPI
 app = FastAPI(
     title="Portal TCC - API",
-    description="API para upload de dados CSV para Delta Lake",
-    version="1.0.0"
+    description="API para upload de dados CSV para PostgreSQL",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Configurar CORS
@@ -39,7 +52,7 @@ async def root():
     return {
         "message": "Portal TCC API",
         "status": "online",
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
 
 
