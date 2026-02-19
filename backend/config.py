@@ -1,6 +1,5 @@
 """Configurações da aplicação."""
 from pydantic_settings import BaseSettings
-from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -10,8 +9,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Delta Lake
-    delta_table_path: str = "./data/delta_table"
+    # PostgreSQL
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/portaltcc"
 
     # Upload
     max_file_size_mb: int = 10
@@ -28,11 +27,6 @@ class Settings(BaseSettings):
     def max_file_size_bytes(self) -> int:
         """Retorna o tamanho máximo em bytes."""
         return self.max_file_size_mb * 1024 * 1024
-
-    @property
-    def delta_path(self) -> Path:
-        """Retorna o Path do Delta Lake."""
-        return Path(self.delta_table_path)
 
 
 # Instância global de configurações
