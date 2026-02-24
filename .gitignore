@@ -20,6 +20,9 @@ build/
 # Delta Lake
 backend/data/
 
+# ChromaDB
+backend/chroma_db/
+
 # IDE
 .vscode/
 .idea/
