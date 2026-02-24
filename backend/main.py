@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from db.connection import init_db
-from routes import upload
+from routes import upload, chat
 from config import settings
 import logging
 
@@ -44,6 +44,7 @@ app.add_middleware(
 
 # Registrar rotas
 app.include_router(upload.router)
+app.include_router(chat.router)
 
 
 @app.get("/")
