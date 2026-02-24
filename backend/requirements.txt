@@ -1,7 +1,7 @@
 # FastAPI e servidor
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
 
 # PostgreSQL
 asyncpg==0.29.0
@@ -13,7 +13,17 @@ pgvector==0.2.4
 # Processamento de dados
 pandas==2.2.0
 
+# LangChain e IA
+langchain==0.3.14
+langchain-google-genai==2.0.8
+langchain-chroma==0.2.2
+chromadb==0.5.23
+google-generativeai==0.8.4
+
+# Streaming SSE
+sse-starlette==2.2.1
+
 # Validação e configuração
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic>=2.7.4,<3.0.0
+pydantic-settings>=2.1.0
 python-dotenv==1.0.0
