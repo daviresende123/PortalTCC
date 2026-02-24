@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal TCC - Chat com Dados</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+    <div class="container chat-container">
+        <header>
+            <h1>Portal TCC</h1>
+            <p>Chat Inteligente com seus Dados</p>
+            <nav class="nav-links">
+                <a href="index.html" class="nav-link">Upload</a>
+                <a href="chat.html" class="nav-link active">Chat</a>
+            </nav>
+        </header>
+
+        <main class="chat-main">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message-bubble bot-message">
+                    <p>Olá! Sou o assistente do Portal TCC. Posso responder perguntas sobre os dados CSV que foram carregados no sistema. Como posso ajudar?</p>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Digite sua pergunta sobre os dados..." autocomplete="off">
+                <button id="btnSend" class="btn-send">Enviar</button>
+                <button id="btnClear" class="btn-clear">Limpar</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 Portal TCC - Todos os direitos reservados</p>
+        </footer>
+    </div>
+
+    <script src="js/chat.js"></script>
+</body>
+</html>
