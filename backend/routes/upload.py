@@ -53,9 +53,23 @@ async def upload_csv(
 
         # Salvar no PostgreSQL
         db_service = DatabaseService(db)
-        rows_saved = await db_service.save_dataframe(df, csvFile.filename)
+        rows_saved, file_id = await db_service.save_dataframe(df, csvFile.filename)
 
         logger.info(f"Upload concluído: {rows_saved} linhas salvas")
+
+        # Gerar embeddings para o ChromaDB (falha não bloqueia o upload)
+        try:
+            from services.embedding_service import embed_records
+
+            records_for_embedding = df.to_dict(orient="records")
+            embedded_count = await embed_records(
+                records=records_for_embedding,
+                file_id=file_id,
+                file_name=csvFile.filename,
+            )
+            logger.info(f"Embeddings gerados: {embedded_count} documentos")
+        except Exception as e:
+            logger.warning(f"Falha ao gerar embeddings (upload continuou): {e}")
 
         return UploadResponse(
             success=True,
