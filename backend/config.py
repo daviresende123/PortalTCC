@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     # CORS
     frontend_url: str = "http://localhost:5500"
 
+    # Google AI
+    google_api_key: str = ""
+
+    # ChromaDB
+    chroma_persist_dir: str = "chroma_db"
+    chroma_collection_name: str = "portaltcc_records"
+
+    # Embedding
+    embedding_model: str = "models/gemini-embedding-001"
+
+    # LLM
+    llm_model: str = "gemini-2.5-flash"
+    llm_temperature: float = 0.3
+
     class Config:
         env_file = ".env"
         case_sensitive = False
