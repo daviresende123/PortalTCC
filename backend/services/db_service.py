@@ -15,7 +15,7 @@ class DatabaseService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def save_dataframe(self, df: pd.DataFrame, file_name: str) -> int:
+    async def save_dataframe(self, df: pd.DataFrame, file_name: str) -> tuple[int, int]:
         """
         Persist a DataFrame to the database.
 
@@ -23,7 +23,7 @@ class DatabaseService:
         row into `records` (data stored as JSONB).
 
         Returns:
-            Number of rows saved.
+            Tuple of (rows_saved, file_id).
         """
         columns = df.columns.tolist()
         rows_count = len(df)
@@ -70,7 +70,7 @@ class DatabaseService:
         logger.info(
             f"Saved {rows_count} rows for file '{file_name}' (file_id={file_id})"
         )
-        return rows_count
+        return rows_count, file_id
 
     async def get_stats(self) -> dict:
         """
