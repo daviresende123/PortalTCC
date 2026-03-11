@@ -48,8 +48,7 @@ async def upload_csv(
 
         # Processar CSV
         logger.info(f"Processando arquivo: {csvFile.filename}")
-        df = CSVService.validate_and_parse_csv(file_content, csvFile.filename)
-        df = CSVService.clean_dataframe(df)
+        df, csv_type = CSVService.validate_and_parse_csv(file_content, csvFile.filename)
 
         # Salvar no PostgreSQL
         db_service = DatabaseService(db)
@@ -76,6 +75,7 @@ async def upload_csv(
             message="Arquivo processado e salvo com sucesso",
             rows_processed=rows_saved,
             file_name=csvFile.filename,
+            csv_type=csv_type,
         )
 
     except ValueError as e:
