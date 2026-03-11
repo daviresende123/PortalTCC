@@ -9,6 +9,7 @@ class UploadResponse(BaseModel):
     message: str
     rows_processed: Optional[int] = None
     file_name: Optional[str] = None
+    csv_type: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
