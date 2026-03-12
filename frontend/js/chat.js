@@ -52,7 +52,8 @@ async function sendMessage() {
                         const data = JSON.parse(line.slice(6));
                         if (data.token) {
                             botMessage += data.token;
-                            bubbleEl.querySelector("p").textContent = botMessage;
+                            bubbleEl.querySelector(".msg-content").innerHTML =
+                                marked.parse(botMessage);
                             scrollToBottom();
                         }
                         if (data.session_id) {
@@ -72,7 +73,7 @@ async function sendMessage() {
         }
 
         if (!botMessage) {
-            bubbleEl.querySelector("p").textContent =
+            bubbleEl.querySelector(".msg-content").textContent =
                 "Não foi possível gerar uma resposta.";
         }
     } catch (error) {
@@ -115,10 +116,16 @@ function appendMessage(text, type) {
     const bubble = document.createElement("div");
     bubble.className = `message-bubble ${type}-message`;
 
-    const p = document.createElement("p");
-    p.textContent = text;
-    bubble.appendChild(p);
+    const content = document.createElement("div");
+    content.className = "msg-content";
 
+    if (type === "user") {
+        content.textContent = text;
+    } else {
+        content.innerHTML = text ? marked.parse(text) : "";
+    }
+
+    bubble.appendChild(content);
     chatMessages.appendChild(bubble);
     scrollToBottom();
     return bubble;
