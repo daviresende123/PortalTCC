@@ -16,7 +16,7 @@ def _decode(file_content: bytes) -> str:
         return file_content.decode("latin-1")
 
 
-def _split_csv_line(line: str) -> list[str]:
+def _split_csv_line(line: str, sep: str = ",") -> list[str]:
     """Split a CSV line respecting quoted fields."""
     result = []
     current = []
@@ -25,7 +25,7 @@ def _split_csv_line(line: str) -> list[str]:
     for char in line:
         if char == '"':
             in_quotes = not in_quotes
-        elif char == ',' and not in_quotes:
+        elif char == sep and not in_quotes:
             result.append("".join(current).strip())
             current = []
         else:
@@ -33,6 +33,13 @@ def _split_csv_line(line: str) -> list[str]:
 
     result.append("".join(current).strip())
     return result
+
+
+def _detect_sep(line: str) -> str:
+    """Detect CSV field separator from a header line."""
+    if line.count(";") > line.count(","):
+        return ";"
+    return ","
 
 
 def _convert_comma_decimals(df: pd.DataFrame) -> pd.DataFrame:
@@ -116,7 +123,7 @@ class CSVService:
         e as demais são wavelengths. Decimais podem usar vírgula.
         """
         text = _decode(file_content)
-        df = pd.read_csv(StringIO(text), header=0)
+        df = pd.read_csv(StringIO(text), header=0, sep=None, engine="python")
 
         # Primeira coluna é sempre o identificador da amostra
         df.rename(columns={df.columns[0]: "amostra"}, inplace=True)
@@ -132,11 +139,19 @@ class CSVService:
         """
         Parse CSV do tipo Nix.
         Estrutura: 3 linhas de metadados antes do header real.
+        A primeira linha declara o separador (sep=; ou sep=,).
         Decimais com vírgula + notação científica.
         Coluna 'User Color Name' é o identificador da amostra.
         """
         text = _decode(file_content)
-        df = pd.read_csv(StringIO(text), skiprows=3, header=0)
+        lines = text.strip().split("\n")
+        # First line is "sep=X" — extract the declared separator
+        sep = ","
+        if lines and lines[0].lower().startswith("sep="):
+            declared = lines[0].strip()[4:].strip()
+            if declared in (";", "\t", "|"):
+                sep = declared
+        df = pd.read_csv(StringIO(text), skiprows=3, header=0, sep=sep)
 
         # Renomear coluna de amostra
         if "User Color Name" in df.columns:
@@ -160,6 +175,11 @@ class CSVService:
         text = _decode(file_content)
         lines = text.strip().split("\n")
 
+        # Detect field separator from the first header line
+        first_header = next((l.strip() for l in lines if l.strip().startswith("File #")), "")
+        sep = _detect_sep(first_header)
+        logger.info(f"pXRF: separador detectado = {repr(sep)}")
+
         # Identificar linhas de header (começam com 'File #') e coletar super-set de colunas
         header_lines = []
         all_columns = []
@@ -168,7 +188,7 @@ class CSVService:
             stripped = line.strip()
             if stripped.startswith("File #"):
                 header_lines.append(stripped)
-                cols = [c.strip() for c in _split_csv_line(stripped)]
+                cols = [c.strip() for c in _split_csv_line(stripped, sep)]
                 for c in cols:
                     if c and c not in seen:
                         all_columns.append(c)
@@ -185,12 +205,12 @@ class CSVService:
             if not stripped:
                 continue
             if stripped.startswith("File #"):
-                current_header_cols = [c.strip() for c in _split_csv_line(stripped)]
+                current_header_cols = [c.strip() for c in _split_csv_line(stripped, sep)]
                 continue
             if current_header_cols is None:
                 continue
 
-            values = _split_csv_line(stripped)
+            values = _split_csv_line(stripped, sep)
             row = {col: None for col in all_columns}
             for i, val in enumerate(values):
                 if i < len(current_header_cols):

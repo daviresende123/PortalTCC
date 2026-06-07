@@ -1,5 +1,6 @@
 """Serviço de embeddings — converte registros JSONB em vetores no ChromaDB."""
 import logging
+import math
 from typing import List, Dict, Any
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -14,7 +15,13 @@ _vector_store: Chroma | None = None
 
 def _record_to_text(data: dict, file_name: str = "") -> str:
     """Converte um registro JSONB em texto legível para embedding."""
-    pairs = [f"{k}: {v}" for k, v in data.items() if v is not None]
+    pairs = []
+    for k, v in data.items():
+        if v is None:
+            continue
+        if isinstance(v, float) and math.isnan(v):
+            continue
+        pairs.append(f"{k}: {v}")
     text = ", ".join(pairs)
     if file_name:
         text = f"arquivo: {file_name} | {text}"
