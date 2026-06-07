@@ -29,13 +29,14 @@ async def init_db() -> None:
 
     Extensions required:
       - timescaledb  (time-series partitioning for the records table)
-      - vector       (pgvector — vector similarity search for embeddings)
 
     Tables created:
-      - files      : metadata for each uploaded CSV file
-      - records    : individual CSV rows stored as JSONB; converted to a
-                     TimescaleDB hypertable partitioned by uploaded_at
-      - embeddings : vector embeddings linked to records (pgvector)
+      - files   : metadata for each uploaded CSV file
+      - records : individual CSV rows stored as JSONB; converted to a
+                  TimescaleDB hypertable partitioned by uploaded_at
+
+    Note: vector embeddings are stored externally in ChromaDB
+    (see services/embedding_service.py), not in PostgreSQL.
     """
     async with engine.begin() as conn:
         # ------------------------------------------------------------------
@@ -44,7 +45,6 @@ async def init_db() -> None:
         await conn.execute(
             text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
         )
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
         # ------------------------------------------------------------------
         # files table — one row per uploaded CSV file
@@ -98,28 +98,5 @@ async def init_db() -> None:
                 "ON records(file_id)"
             )
         )
-
-        # ------------------------------------------------------------------
-        # embeddings table — pgvector (1536-dim, suitable for most models)
-        # No FK to records: TimescaleDB hypertables do not support being
-        # referenced by FK constraints from other tables.
-        # ------------------------------------------------------------------
-        await conn.execute(
-            text("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    id         BIGSERIAL    PRIMARY KEY,
-                    record_id  BIGINT,
-                    embedding  vector(1536),
-                    model      VARCHAR(100),
-                    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-                )
-            """)
-        )
-
-        # IVFFlat index — create after the table has sufficient data.
-        # Uncomment and run once you have rows in the embeddings table:
-        # CREATE INDEX idx_embeddings_vector
-        #   ON embeddings USING ivfflat (embedding vector_cosine_ops)
-        #   WITH (lists = 100);
 
     logger.info("Database initialized successfully")
