@@ -13,6 +13,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
 
 # Ambiente / Segredos
 .env
