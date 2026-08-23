@@ -1,9 +1,8 @@
 # Portal TCC
 
-Portal web com chatbot RAG para análise de dados de espectrometria de
-fluorescência de raios X portátil (**pXRF**).
+Portal web com chatbot RAG para análise de dados de sensores de solo.
 
-O equipamento pXRF mede a composição química de amostras e exporta os
+O equipamento mede a composição química de amostras e exporta os
 resultados em arquivos CSV. Este sistema recebe esses arquivos, trata os
 dados, armazena em banco, indexa semanticamente e permite que você faça
 perguntas sobre eles em português, conversando com um chatbot.
