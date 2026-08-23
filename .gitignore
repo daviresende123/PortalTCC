@@ -14,8 +14,10 @@ ENV/
 dist/
 build/
 
-# Ambiente
+# Ambiente / Segredos
 .env
+.env.*
+!.env.example
 
 # Delta Lake
 backend/data/

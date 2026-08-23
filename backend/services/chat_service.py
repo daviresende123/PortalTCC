@@ -1,6 +1,7 @@
 """Serviço de chat RAG — LangChain + Gemini + ChromaDB."""
 import re
 import logging
+import time
 from typing import AsyncGenerator, Dict, List
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -208,6 +209,9 @@ async def chat_stream(
     session_id: str = "default",
 ) -> AsyncGenerator[str, None]:
     """Mesmo que chat() mas retorna tokens via streaming."""
+    _t_start = time.perf_counter()  # [METRICS]
+    _t_ttft = None  # [METRICS]
+
     context, is_agg = await _retrieve_context(question)
     history = _get_chat_history(session_id)
     messages = _build_messages(context, history, question, aggregation=is_agg)
@@ -217,8 +221,18 @@ async def chat_stream(
     async for chunk in llm.astream(messages):
         token = chunk.content
         if token:
+            if _t_ttft is None:  # [METRICS] primeiro token
+                _t_ttft = time.perf_counter()
             full_response += token
             yield token
+
+    _t_end = time.perf_counter()  # [METRICS]
+    ttft = (_t_ttft - _t_start) if _t_ttft else 0.0  # [METRICS]
+    total = _t_end - _t_start  # [METRICS]
+    logger.info(  # [METRICS]
+        f"[METRICS] chat_stream: TTFT={ttft:.3f}s tempo_total={total:.3f}s "
+        f"is_agg={is_agg}"
+    )
 
     history.append((question, full_response))
 
