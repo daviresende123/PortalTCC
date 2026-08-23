@@ -20,9 +20,6 @@ build/
 .env.*
 !.env.example
 
-# Delta Lake
-backend/data/
-
 # ChromaDB
 backend/chroma_db/
 
