@@ -1,0 +1,35 @@
+# Ambientes virtuais e caches — o venv local tem centenas de MB e
+# tornaria o contexto de build absurdamente lento
+**/venv/
+**/env/
+**/ENV/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+
+# Segredos: nunca devem ser copiados para dentro da imagem.
+# A configuração chega por variáveis de ambiente via docker-compose.
+**/.env
+**/.env.*
+
+# Dados locais — o ChromaDB do container vive em um volume nomeado
+backend/chroma_db/
+backend/data/
+
+# Controle de versão e ferramentas
+.git/
+.gitignore
+.github/
+.claude/
+.vscode/
+.idea/
+
+# Documentação e exemplos: ficam no repositório, não na imagem
+*.md
+backend/*.md
+exemplos/
+
+# Docker
+**/Dockerfile
+.dockerignore
+docker-compose.yml
