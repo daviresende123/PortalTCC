@@ -1,7 +1,9 @@
 """Aplicação principal FastAPI."""
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from db.connection import init_db
 from routes import upload, chat
 from config import settings
@@ -47,9 +49,9 @@ app.include_router(upload.router)
 app.include_router(chat.router)
 
 
-@app.get("/")
-async def root():
-    """Endpoint raiz."""
+@app.get("/api/info")
+async def info():
+    """Informações da API."""
     return {
         "message": "Portal TCC API",
         "status": "online",
@@ -61,6 +63,38 @@ async def root():
 async def health():
     """Health check."""
     return {"status": "healthy"}
+
+
+# ---------------------------------------------------------------------------
+# Frontend estático
+#
+# O mount precisa ser o ÚLTIMO registro de rota: o Starlette resolve as
+# rotas na ordem de registro, então montar "/" antes dos routers faria
+# esta rota capturar tudo e os endpoints /api/* deixariam de responder.
+#
+# html=True faz "/" servir o index.html e habilita as URLs diretas
+# (ex.: /chat.html), dispensando o Live Server e o segundo terminal.
+# ---------------------------------------------------------------------------
+_BASE_DIR = Path(__file__).resolve().parent
+# Na imagem Docker o frontend é copiado para backend/frontend; rodando
+# localmente com "python main.py" ele fica um nível acima, na raiz do repo.
+FRONTEND_DIR = _BASE_DIR / "frontend"
+if not FRONTEND_DIR.is_dir():
+    FRONTEND_DIR = _BASE_DIR.parent / "frontend"
+
+if FRONTEND_DIR.is_dir():
+    app.mount(
+        "/",
+        StaticFiles(directory=FRONTEND_DIR, html=True),
+        name="frontend",
+    )
+    logger.info(f"Frontend servido a partir de {FRONTEND_DIR}")
+else:
+    logger.warning(
+        f"Diretório do frontend não encontrado (procurado em "
+        f"{_BASE_DIR / 'frontend'} e {_BASE_DIR.parent / 'frontend'}); "
+        f"apenas a API está disponível"
+    )
 
 
 if __name__ == "__main__":

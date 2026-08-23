@@ -1,4 +1,6 @@
-const API_BASE = "http://localhost:8000/api/chat";
+// Caminho relativo: o próprio FastAPI serve esta página, então a
+// requisição vai para a mesma origem e dispensa CORS.
+const API_BASE = "/api/chat";
 
 let sessionId = null;
 
