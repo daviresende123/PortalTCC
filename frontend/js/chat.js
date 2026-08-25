@@ -11,6 +11,12 @@ const btnClear = document.getElementById("btnClear");
 
 // --- Enviar mensagem ---
 
+// Se o servidor ficar este tempo sem mandar NENHUM byte, a requisição é
+// abortada. O contador reinicia a cada pedaço recebido, então uma resposta
+// longa continua fluindo — o que ele mata é a espera infinita quando a API
+// do Google trava em retry.
+const IDLE_TIMEOUT_MS = 45000;
+
 async function sendMessage() {
     const message = chatInput.value.trim();
     if (!message) return;
@@ -21,7 +27,16 @@ async function sendMessage() {
     appendMessage(message, "user");
     showTypingIndicator();
 
+    const controller = new AbortController();
+    let idleTimer = null;
+    const resetIdleTimer = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
+
     try {
+        resetIdleTimer();
+
         const response = await fetch(`${API_BASE}/stream`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -29,63 +44,87 @@ async function sendMessage() {
                 message: message,
                 session_id: sessionId,
             }),
+            signal: controller.signal,
         });
 
         if (!response.ok) {
             throw new Error(`Erro do servidor: ${response.status}`);
         }
 
-        hideTypingIndicator();
-        const bubbleEl = appendMessage("", "bot");
+        // O indicador só sai quando o primeiro token chega. O StreamingResponse
+        // manda os headers na hora, muito antes do modelo começar a responder;
+        // esconder aqui deixaria um balão vazio na tela durante toda a espera.
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let botMessage = "";
+        let bubbleEl = null;
+        let serverError = null;
+        let buffer = "";
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            resetIdleTimer();
 
-            const text = decoder.decode(value, { stream: true });
-            const lines = text.split("\n");
+            // Um chunk da rede pode cortar uma linha do SSE no meio. Guardar o
+            // resto no buffer evita perder tokens em respostas longas.
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
 
             for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        if (data.token) {
-                            botMessage += data.token;
-                            bubbleEl.querySelector(".msg-content").innerHTML =
-                                marked.parse(botMessage);
-                            scrollToBottom();
-                        }
-                        if (data.session_id) {
-                            sessionId = data.session_id;
-                        }
-                    } catch (e) {
-                        // Ignora linhas mal-formadas
+                if (!line.startsWith("data: ")) continue;
+
+                let data;
+                try {
+                    data = JSON.parse(line.slice(6));
+                } catch (e) {
+                    continue; // Ignora linhas mal-formadas
+                }
+
+                if (data.error) {
+                    serverError = data.error;
+                }
+                if (data.token) {
+                    if (!bubbleEl) {
+                        hideTypingIndicator();
+                        bubbleEl = appendMessage("", "bot");
                     }
+                    botMessage += data.token;
+                    bubbleEl.querySelector(".msg-content").innerHTML =
+                        marked.parse(botMessage);
+                    scrollToBottom();
                 }
-                if (line.startsWith("event: done")) {
-                    // Próxima linha data terá o session_id
-                }
-                if (line.startsWith("event: error")) {
-                    // Próxima linha data terá o erro
+                if (data.session_id) {
+                    sessionId = data.session_id;
                 }
             }
         }
 
-        if (!botMessage) {
-            bubbleEl.querySelector(".msg-content").textContent =
-                "Não foi possível gerar uma resposta.";
+        hideTypingIndicator();
+
+        if (serverError) {
+            appendMessage(`Erro no servidor: ${serverError}`, "error");
+        } else if (!botMessage) {
+            appendMessage("Não foi possível gerar uma resposta.", "error");
         }
     } catch (error) {
         hideTypingIndicator();
-        appendMessage(
-            "Erro ao se comunicar com o servidor. Verifique se o backend está rodando.",
-            "error"
-        );
+        if (error.name === "AbortError") {
+            appendMessage(
+                "A resposta demorou demais e foi cancelada. Isso costuma ser " +
+                "limite de uso da API do Google — espere um minuto e tente de novo.",
+                "error"
+            );
+        } else {
+            appendMessage(
+                "Erro ao se comunicar com o servidor. Verifique se o backend está rodando.",
+                "error"
+            );
+        }
         console.error("Erro no chat:", error);
     } finally {
+        clearTimeout(idleTimer);
         setInputEnabled(true);
         chatInput.focus();
     }

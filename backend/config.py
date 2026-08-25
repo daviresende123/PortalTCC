@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # LLM
     llm_model: str = "gemini-2.5-flash"
     llm_temperature: float = 0.3
+    # Timeouts: sem eles, uma chamada à API do Google sob rate limit fica em
+    # retry indefinido e o chat trava "carregando" para sempre.
+    llm_timeout_seconds: int = 90
+    llm_max_retries: int = 2
+    retrieval_timeout_seconds: int = 30
 
     class Config:
         env_file = ".env"

@@ -75,6 +75,158 @@ async def get_dataset_overview() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Contexto completo do dataset
+#
+# Enquanto o dataset couber no contexto do LLM, mandar TODOS os registros é
+# estritamente melhor do que recuperar os k mais parecidos: não há risco de o
+# modelo responder com base em parte dos dados, e economiza a chamada de
+# embedding da pergunta (uma ida à API do Google a menos por mensagem).
+#
+# O corte é por CÉLULAS (linhas x colunas), não por linhas: um pXRF típico tem
+# 37 x 65 = 2.405 células e passa folgado, enquanto um Visnir em formato largo
+# tem milhares de colunas de wavelength e estouraria o contexto com poucas
+# linhas. Acima do limite, cai para busca vetorial + estatística em SQL.
+# ---------------------------------------------------------------------------
+MAX_CONTEXT_ROWS = 5_000
+MAX_CONTEXT_CELLS = 150_000
+
+
+async def get_all_records(
+    max_rows: int = MAX_CONTEXT_ROWS,
+    max_cells: int = MAX_CONTEXT_CELLS,
+) -> dict:
+    """
+    Retorna TODOS os registros do banco, na ordem original de upload.
+
+    Não lê o arquivo CSV: lê o JSONB já persistido em `records`. A ordem das
+    colunas vem de `files.columns_list`, que preserva a ordem original do
+    arquivo (JSONB não preserva ordem de chaves).
+
+    Returns a dict with:
+      - records: list of {"file_name": str, "data": dict}
+      - columns: column names in original file order
+      - total_records: total in the database
+      - truncated: True when the dataset is too large to send in full
+                   (in that case `records` comes back empty)
+    """
+    from db.connection import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        total = (
+            await session.execute(text("SELECT COUNT(*) FROM records"))
+        ).scalar_one()
+
+        files_rows = (
+            await session.execute(
+                text("SELECT columns_list FROM files ORDER BY uploaded_at, id")
+            )
+        ).fetchall()
+
+        # Super-set das colunas, preservando a ordem de cada arquivo
+        columns: list[str] = []
+        seen: set[str] = set()
+        for row in files_rows:
+            for col in row[0] or []:
+                if col not in seen:
+                    seen.add(col)
+                    columns.append(col)
+
+        n_cols = len(columns) or 1
+        if total > max_rows or total * n_cols > max_cells:
+            logger.info(
+                f"Dataset grande demais para contexto completo: "
+                f"{total} registros x {n_cols} colunas"
+            )
+            return {
+                "records": [],
+                "columns": columns,
+                "total_records": total,
+                "truncated": True,
+            }
+
+        # data::text porque o driver asyncpg devolve JSONB como string quando
+        # a query é SQL cru (sem tipo declarado pelo SQLAlchemy)
+        rows = (
+            await session.execute(
+                text("""
+                    SELECT f.file_name, r.data::text
+                    FROM records r
+                    JOIN files f ON f.id = r.file_id
+                    ORDER BY r.uploaded_at, r.id
+                """)
+            )
+        ).fetchall()
+
+    records = [
+        {
+            "file_name": r[0],
+            "data": json.loads(r[1]) if isinstance(r[1], str) else r[1],
+        }
+        for r in rows
+    ]
+
+    return {
+        "records": records,
+        "columns": columns,
+        "total_records": total,
+        "truncated": False,
+    }
+
+
+async def get_column_stats(column: str) -> dict | None:
+    """
+    Calcula estatísticas de uma coluna numérica direto no PostgreSQL.
+
+    Só considera valores que o JSONB guarda como número — o csv_service já
+    converteu as colunas numéricas, e NaN virou null na gravação, então
+    `jsonb_typeof(...) = 'number'` filtra exatamente os valores válidos.
+
+    Returns None quando a coluna não tem nenhum valor numérico.
+    """
+    from db.connection import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        total = (
+            await session.execute(text("SELECT COUNT(*) FROM records"))
+        ).scalar_one()
+
+        # CAST explícito: sem ele o operador `->` fica ambíguo entre as
+        # sobrecargas jsonb->int e jsonb->text na hora de inferir o parâmetro
+        row = (
+            await session.execute(
+                text("""
+                    SELECT COUNT(*)          AS n,
+                           AVG(v)            AS media,
+                           MIN(v)            AS minimo,
+                           MAX(v)            AS maximo,
+                           STDDEV_SAMP(v)    AS desvio,
+                           SUM(v)            AS soma
+                    FROM (
+                        SELECT (data ->> CAST(:col AS text))::numeric AS v
+                        FROM records
+                        WHERE jsonb_typeof(data -> CAST(:col AS text)) = 'number'
+                    ) s
+                """),
+                {"col": column},
+            )
+        ).fetchone()
+
+    if row is None or not row.n:
+        return None
+
+    return {
+        "column": column,
+        "count": row.n,
+        "total_records": total,
+        "media": float(row.media) if row.media is not None else None,
+        "minimo": float(row.minimo) if row.minimo is not None else None,
+        "maximo": float(row.maximo) if row.maximo is not None else None,
+        "desvio": float(row.desvio) if row.desvio is not None else None,
+        "soma": float(row.soma) if row.soma is not None else None,
+    }
+
+
 class DatabaseService:
     """Handles all database operations for CSV data storage."""
 
