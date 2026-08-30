@@ -337,3 +337,17 @@
         font-size: 0.85em;
     }
 }
+
+/* Rótulo da etapa em execução ("Calculando estatísticas…"), exibido ao lado
+   dos pontinhos do indicador de digitação enquanto o modelo consulta o banco. */
+.typing-indicator .typing-status {
+    font-size: 0.85rem;
+    font-style: normal;
+    color: var(--coffee-light);
+    opacity: 0.85;
+    margin-left: 4px;
+}
+
+.typing-indicator .typing-status:empty {
+    display: none;
+}

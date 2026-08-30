@@ -1,119 +1,81 @@
-"""Serviço de chat RAG — LangChain + Gemini + ChromaDB."""
-import asyncio
-import csv
-import io
-import re
+"""
+Serviço de chat — LangChain + Gemini com function calling.
+
+O modelo não recebe mais os dados no prompt. Ele recebe o *esquema* do
+dataset e a descrição de quatro ferramentas (ver services/tools.py), e decide
+sozinho quais chamar. O PostgreSQL calcula os números, o ChromaDB busca por
+semelhança, e o modelo apenas interpreta os resultados.
+
+Isso substitui o roteamento anterior, feito por expressões regulares sobre a
+pergunta: cada formato novo de pergunta exigia uma regra nova, e perguntas
+legítimas que não casassem com nenhuma regra caíam silenciosamente no caminho
+errado. Agora quem interpreta a intenção é o modelo, e quem calcula é o banco
+— cada um no que é bom.
+"""
+import json
 import logging
 import time
-from typing import AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict, List
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from config import settings
-from services.embedding_service import get_vector_store
-from services.db_service import (
-    get_all_records,
-    get_column_stats,
-    get_dataset_overview,
-)
+from services import tools
+from services.query_service import descrever_dataset
 
 logger = logging.getLogger(__name__)
 
 # Memória de sessão em memória: session_id -> [(pergunta, resposta)]
+#
+# Guardamos só o texto final de cada troca, não as mensagens de ferramenta.
+# Resultados de ferramenta são grandes e só interessam dentro da rodada em
+# que foram pedidos; mantê-los no histórico encheria o contexto em poucas
+# perguntas sem melhorar a resposta.
 _sessions: Dict[str, List[tuple]] = {}
 
-# Quantos registros a busca vetorial devolve para perguntas pontuais.
-# Só vale para consultas de registro único: agregações recebem o dataset
-# inteiro, lido do PostgreSQL (ver _retrieve_context).
-DEFAULT_K = 10
+MAX_TROCAS_HISTORICO = 10
 
-SYSTEM_PROMPT = """Você é um assistente especializado em analisar dados do Portal TCC.
-Você tem acesso a dados de arquivos CSV que foram carregados no sistema.
-Use APENAS os dados fornecidos no contexto abaixo para responder as perguntas do usuário.
-Se você não encontrar a informação nos dados, diga claramente que não encontrou.
-Responda sempre em português brasileiro.
-Seja conciso e direto nas respostas.
-
-Contexto dos dados:
-{context}"""
-
-# Used for dataset-wide queries: instructs the model not to summarize or truncate.
-AGGREGATION_SYSTEM_PROMPT = """Você é um assistente especializado em analisar dados do Portal TCC.
-Você tem acesso a dados de arquivos CSV que foram carregados no sistema.
-Use APENAS os dados fornecidos no contexto abaixo para responder as perguntas do usuário.
-Se você não encontrar a informação nos dados, diga claramente que não encontrou.
+SYSTEM_PROMPT = """Você é um assistente de análise de dados do Portal TCC.
 Responda sempre em português brasileiro.
 
-IMPORTANTE: quando o usuário pede uma lista completa, enumeração, contagem ou agregação,
-você DEVE apresentar TODOS os valores fornecidos no contexto — não resuma, não trunce,
-não use "etc.", não diga "entre outros". Liste cada item individualmente.
+Você NÃO tem os dados em mãos. Para obter qualquer informação sobre eles, use
+as ferramentas disponíveis — elas consultam o banco de dados real.
 
-Contexto dos dados:
-{context}"""
+Regras que você deve seguir sempre:
 
-# Patterns that indicate the user wants aggregate or full-dataset information.
-_AGGREGATION_PATTERNS = re.compile(
-    r"""
-    quais\s+(amostras?|arquivos?|elementos?|valores?|registros?|dados?|nomes?) |
-    list[ae]                                   |
-    listagem                                   |
-    todos\s+os?\s+\w+                          |
-    todas\s+as?\s+\w+                          |
-    quantas?\s+(amostras?|registros?|arquivos?|dados?|elementos?) |
-    total\s+de\s+\w+                           |
-    distin[ct][oa]s?                           |
-    [uú]nico\w*                                |
-    presentes?\s+(no|na|nos|nas|em)            |
-    quant[oa]s?\s+\w+\s+(h[aá]|exist[ei]\w*)  |
-    n[uú]mero\s+de\s+\w+                       |
-    contar\s+\w+                               |
-    contagem                                   |
-    m[eé]dia\s+(de|do|da)                      |
-    m[aá]ximo\s+(de|do|da)                     |
-    m[ií]nimo\s+(de|do|da)                     |
-    desvio\s+padr[aã]o                         |
-    ranking                                    |
-    list\s+all                                 |
-    how\s+many                                 |
-    all\s+samples?                             |
-    \ball\b.{0,20}\bdata\b                     |
-    count\s+of                                 |
-    unique\s+\w+
-    """,
-    re.IGNORECASE | re.VERBOSE,
+1. NUNCA invente, estime ou calcule números por conta própria. Toda média,
+   mediana, contagem, soma ou comparação deve vir de uma ferramenta. Se você
+   se pegar somando valores mentalmente, pare e chame `estatisticas`.
+2. Se a pergunta pede estatística de vários ou de todos os elementos, chame
+   `estatisticas` UMA vez sem o argumento `colunas` — ela devolve todas as
+   colunas numéricas de uma vez. Não faça uma chamada por coluna.
+3. Apresente resultados completos. Se a ferramenta devolveu 57 colunas, mostre
+   as 57 — não resuma, não trunque, não escreva "entre outros". Use tabelas
+   em Markdown quando houver muitos números.
+4. Se uma ferramenta devolver um campo "erro", leia a mensagem, corrija os
+   argumentos e tente de novo.
+5. Se os dados realmente não contiverem a informação, diga isso claramente,
+   mencionando o que você consultou.
+
+Estrutura dos dados carregados:
+
+{esquema}"""
+
+SEM_DADOS = (
+    "Ainda não há dados carregados no sistema. "
+    "Envie um arquivo CSV na página inicial para poder fazer perguntas sobre ele."
 )
 
-
-def _is_aggregation_query(question: str) -> bool:
-    """Return True when the question asks for aggregate/enumeration information."""
-    return bool(_AGGREGATION_PATTERNS.search(question))
-
-
-def _format_overview_as_context(overview: dict) -> str:
-    """Convert a dataset overview dict into a readable context string."""
-    lines = []
-
-    files = overview.get("files", [])
-    lines.append(f"Arquivos carregados: {len(files)}")
-    for f in files:
-        lines.append(f"  - {f['file_name']}: {f['rows_count']} registros, colunas: {', '.join(f['columns'])}")
-
-    lines.append(f"\nTotal de registros: {overview['total_records']}")
-
-    samples = overview.get("samples", [])
-    if samples:
-        lines.append(f"\nAmostras presentes nos dados ({len(samples)} no total):")
-        for s in samples:
-            lines.append(f"  - {s}")
-    else:
-        lines.append("\nNenhuma coluna 'amostra' encontrada nos dados.")
-
-    cols = overview.get("all_columns", [])
-    if cols:
-        lines.append(f"\nColunas disponíveis nos dados: {', '.join(cols)}")
-
-    return "\n".join(lines)
+SEM_RESPOSTA = (
+    "Consultei os dados, mas não consegui montar uma resposta. "
+    "Tente reformular a pergunta de forma mais específica."
+)
 
 
 def _get_llm() -> ChatGoogleGenerativeAI:
@@ -125,7 +87,6 @@ def _get_llm() -> ChatGoogleGenerativeAI:
         # chat trava carregando para sempre; melhor falhar de forma visível.
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
-        convert_system_message_to_human=True,
     )
 
 
@@ -135,306 +96,163 @@ def _get_chat_history(session_id: str) -> List[tuple]:
     return _sessions[session_id]
 
 
-def _build_messages(context: str, history: List[tuple], question: str, aggregation: bool = False) -> list:
-    """Monta a lista de mensagens LangChain com contexto, histórico e pergunta."""
-    prompt_template = AGGREGATION_SYSTEM_PROMPT if aggregation else SYSTEM_PROMPT
-    messages = [SystemMessage(content=prompt_template.format(context=context))]
-    for human_msg, ai_msg in history[-10:]:
-        messages.append(HumanMessage(content=human_msg))
-        messages.append(AIMessage(content=ai_msg))
-    messages.append(HumanMessage(content=question))
-    return messages
-
-
-# Nome do elemento em português -> símbolo usado como nome de coluna nos
-# arquivos pXRF. Permite que "média de zinco" encontre a coluna "Zn".
-_ELEMENTOS_PT = {
-    "magnesio": "Mg", "magnésio": "Mg",
-    "aluminio": "Al", "alumínio": "Al",
-    "silicio": "Si", "silício": "Si",
-    "fosforo": "P", "fósforo": "P",
-    "enxofre": "S",
-    "cloro": "Cl",
-    "potassio": "K", "potássio": "K",
-    "calcio": "Ca", "cálcio": "Ca",
-    "titanio": "Ti", "titânio": "Ti",
-    "vanadio": "V", "vanádio": "V",
-    "cromo": "Cr", "cromio": "Cr", "crômio": "Cr",
-    "manganes": "Mn", "manganês": "Mn",
-    "ferro": "Fe",
-    "niquel": "Ni", "níquel": "Ni",
-    "cobre": "Cu",
-    "zinco": "Zn",
-    "arsenio": "As", "arsênio": "As", "arsenico": "As", "arsênico": "As",
-    "selenio": "Se", "selênio": "Se",
-    "bromo": "Br",
-    "rubidio": "Rb", "rubídio": "Rb",
-    "estroncio": "Sr", "estrôncio": "Sr",
-    "molibdenio": "Mo", "molibdênio": "Mo",
-    "cadmio": "Cd", "cádmio": "Cd",
-    "bario": "Ba", "bário": "Ba",
-    "mercurio": "Hg", "mercúrio": "Hg",
-    "chumbo": "Pb",
-}
-
-
-def _resolve_numeric_column(question: str, all_columns: List[str]) -> str | None:
+def _resumo_esquema(descricao: dict) -> str:
     """
-    Descobre a qual coluna a pergunta se refere ("zinco" -> "Zn").
+    Condensa descrever_dataset() em ~200 tokens para o prompt do sistema.
 
-    Retorna None quando não dá para decidir — nesse caso simplesmente não
-    injetamos estatística, e o modelo trabalha com a tabela completa.
+    Vai no prompt porque é barato e evita uma rodada de ferramenta inteira só
+    para o modelo descobrir que existe uma coluna chamada "Zn". Os *dados*
+    nunca entram aqui — só a estrutura.
     """
-    if not all_columns:
+    linhas = []
+
+    arquivos = descricao.get("arquivos", [])
+    if arquivos:
+        nomes = ", ".join(f"{a['nome']} ({a['registros']} registros)" for a in arquivos)
+        linhas.append(f"Arquivos: {nomes}")
+    linhas.append(f"Total de registros: {descricao.get('total_registros', 0)}")
+
+    colunas = descricao.get("colunas", [])
+    numericas = [c["nome"] for c in colunas if c["tipo"] == "numérica"]
+    texto = [c for c in colunas if c["tipo"] == "texto"]
+
+    if numericas:
+        linhas.append(
+            f"\nColunas numéricas ({len(numericas)}): {', '.join(numericas)}"
+        )
+    if texto:
+        linhas.append(f"\nColunas de texto ({len(texto)}):")
+        for c in texto:
+            distintos = c.get("distintos")
+            valores = c.get("valores")
+            if valores:
+                linhas.append(
+                    f"  - {c['nome']} ({distintos} distintos): {', '.join(valores)}"
+                )
+            else:
+                linhas.append(f"  - {c['nome']} ({distintos} valores distintos)")
+
+    return "\n".join(linhas)
+
+
+def _texto_do_chunk(conteudo: Any) -> str:
+    """Normaliza o content de um chunk — o Gemini às vezes devolve lista."""
+    if isinstance(conteudo, str):
+        return conteudo
+    if isinstance(conteudo, list):
+        return "".join(
+            parte if isinstance(parte, str) else parte.get("text", "")
+            for parte in conteudo
+        )
+    return ""
+
+
+async def _montar_mensagens(question: str, session_id: str) -> list | None:
+    """Monta a conversa inicial. Retorna None quando não há dados carregados."""
+    descricao = await descrever_dataset()
+    if not descricao.get("total_registros"):
         return None
 
-    q_lower = question.lower()
-    tokens = re.findall(r"[0-9A-Za-zÀ-ÿ#]+", question)
-    lower_tokens = {t.lower() for t in tokens}
-
-    # As colunas "* Err" são a incerteza da medição, não a medição. Só entram
-    # se o usuário falar de erro explicitamente — do contrário "média de Zn"
-    # poderia cair em "Zn Err" e devolver um número sem sentido.
-    wants_err = bool(re.search(r"\berr\w*|incerteza", q_lower))
-    candidates = [
-        c for c in all_columns
-        if wants_err or not re.search(r"\berr\b", c.lower())
+    mensagens = [
+        SystemMessage(content=SYSTEM_PROMPT.format(esquema=_resumo_esquema(descricao)))
     ]
-    by_lower = {c.lower(): c for c in candidates}
-
-    def pick(col: str) -> str:
-        """Se o usuário falou de erro, prefere a coluna irmã '<col> Err'."""
-        if wants_err:
-            sibling = by_lower.get(f"{col.lower()} err")
-            if sibling:
-                return sibling
-        return col
-
-    # 1) nome do elemento em português
-    for token in lower_tokens:
-        symbol = _ELEMENTOS_PT.get(token)
-        if symbol and symbol.lower() in by_lower:
-            return pick(by_lower[symbol.lower()])
-
-    # 2) nome da coluna citado literalmente (2+ caracteres)
-    for col in sorted(candidates, key=len, reverse=True):
-        cl = col.lower()
-        if len(cl) >= 2 and re.search(
-            rf"(?<![0-9a-zà-ÿ]){re.escape(cl)}(?![0-9a-zà-ÿ])", q_lower
-        ):
-            return pick(col)
-
-    # 3) símbolo de uma letra só (P, S, K, V...) exige grafia exata, senão
-    #    qualquer "a" ou "e" solto na frase viraria nome de coluna
-    for col in candidates:
-        if len(col) == 1 and col in tokens:
-            return pick(col)
-
-    return None
-
-
-def _format_stats_as_context(stats: dict) -> str:
-    """Formata o resultado de get_column_stats para o prompt."""
-    def fmt(value):
-        return "—" if value is None else f"{value:.6g}"
-
-    return (
-        f"=== Estatísticas da coluna '{stats['column']}' calculadas pelo banco de dados ===\n"
-        f"Valores exatos, computados em SQL sobre {stats['count']} de "
-        f"{stats['total_records']} registros:\n"
-        f"  média: {fmt(stats['media'])}\n"
-        f"  mínimo: {fmt(stats['minimo'])}\n"
-        f"  máximo: {fmt(stats['maximo'])}\n"
-        f"  desvio padrão (amostral): {fmt(stats['desvio'])}\n"
-        f"  soma: {fmt(stats['soma'])}"
-    )
-
-
-def _format_records_as_table(full: dict) -> str:
-    """
-    Converte todos os registros em uma tabela CSV para o contexto.
-
-    Formato de tabela em vez de "coluna: valor" repetido linha a linha: os
-    nomes das colunas aparecem UMA vez, no cabeçalho, em vez de uma vez por
-    registro. Para o pXRF de exemplo isso é ~4.800 tokens em vez de ~10.900,
-    com exatamente a mesma informação.
-
-    Nada aqui altera o arquivo original nem o banco: os dados já chegam
-    colunados, do JSONB gravado no upload.
-    """
-    records = full["records"]
-    columns = full["columns"] or sorted({k for r in records for k in r["data"]})
-    multi_file = len({r["file_name"] for r in records}) > 1
-
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow((["arquivo"] if multi_file else []) + columns)
-    for rec in records:
-        data = rec["data"]
-        values = ["" if data.get(c) is None else data.get(c) for c in columns]
-        writer.writerow(([rec["file_name"]] if multi_file else []) + values)
-
-    n = len(records)
-    header = (
-        f"=== TODOS OS {n} REGISTROS DO DATASET, EM CSV "
-        f"({n} de {full['total_records']} — dataset completo, nada foi omitido) ==="
-    )
-    return header + "\n" + buf.getvalue().rstrip("\n")
-
-
-async def _vector_context(question: str) -> str:
-    """
-    Busca os DEFAULT_K registros mais parecidos com a pergunta no ChromaDB.
-
-    O asyncio.wait_for é o que impede o carregamento infinito: a busca embeda
-    a pergunta pela API do Google, e essa chamada não tem timeout próprio —
-    sob rate limit (429) o cliente fica em retry sem nunca desistir.
-    """
-    store = get_vector_store()
-    retriever = store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": DEFAULT_K},
-    )
-    try:
-        docs = await asyncio.wait_for(
-            retriever.ainvoke(question),
-            timeout=settings.retrieval_timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        logger.error(
-            f"Busca vetorial excedeu {settings.retrieval_timeout_seconds}s "
-            f"(possível rate limit da API de embeddings)"
-        )
-        return ""
-    except Exception as exc:
-        logger.error(f"Falha na busca vetorial: {exc}")
-        return ""
-
-    return "\n\n".join(doc.page_content for doc in docs)
-
-
-async def _retrieve_context(question: str) -> tuple[str, bool]:
-    """
-    Monta o contexto da pergunta.
-
-    Consultas agregadas (média, contagem, listagem) recebem o dataset INTEIRO
-    lido do PostgreSQL — enquanto ele couber no contexto do modelo. Isso
-    elimina de vez o "só tenho 10 dos 37 registros" e ainda dispensa a chamada
-    de embedding, que é uma ida à API do Google a menos por pergunta.
-
-    Consultas pontuais ("qual o Zn da amostra X") continuam na busca vetorial,
-    que é a ferramenta certa para esse caso.
-
-    Returns (context_text, is_aggregation).
-    """
-    is_agg = _is_aggregation_query(question)
-
-    if not is_agg:
-        context = await _vector_context(question)
-        return (context or "Nenhum dado encontrado no banco de dados."), False
-
-    parts: List[str] = []
-    all_columns: List[str] = []
-
-    try:
-        overview = await get_dataset_overview()
-        parts.append(
-            "=== Resumo do dataset ===\n" + _format_overview_as_context(overview)
-        )
-        all_columns = overview.get("all_columns", [])
-    except Exception as exc:
-        logger.warning(f"Falha ao obter visão geral do dataset: {exc}")
-
-    # Estatística exata em SQL: o modelo é ruim em somar 37 floats na mão,
-    # então quando dá para identificar a coluna entregamos o número pronto.
-    column = _resolve_numeric_column(question, all_columns)
-    if column:
-        try:
-            stats = await get_column_stats(column)
-            if stats:
-                parts.append(_format_stats_as_context(stats))
-        except Exception as exc:
-            logger.warning(f"Falha ao calcular estatísticas de '{column}': {exc}")
-
-    full = None
-    try:
-        full = await get_all_records()
-    except Exception as exc:
-        logger.warning(f"Falha ao carregar todos os registros: {exc}")
-
-    if full and not full["truncated"] and full["records"]:
-        parts.append(_format_records_as_table(full))
-    else:
-        # Plano B: dataset grande demais (ou banco indisponível). Aqui a
-        # amostra é rotulada como amostra, para o modelo não confundi-la
-        # com o dataset completo.
-        vector_context = await _vector_context(question)
-        if vector_context:
-            total = full["total_records"] if full else "?"
-            parts.append(
-                f"=== AMOSTRA ILUSTRATIVA: {DEFAULT_K} registros de {total} "
-                f"(NÃO use para contagens ou cálculos) ===\n" + vector_context
-            )
-
-    if not parts:
-        return "Nenhum dado encontrado no banco de dados.", True
-
-    return "\n\n".join(parts), True
-
-
-async def chat(question: str, session_id: str = "default") -> str:
-    """
-    Processa uma pergunta pelo pipeline RAG.
-
-    1. Detecta se é consulta agregada ou de registro único
-    2. Recupera documentos relevantes (ChromaDB) e/ou resumo completo (PostgreSQL)
-    3. Constrói prompt com contexto + histórico
-    4. Envia para Gemini
-    5. Armazena troca na memória da sessão
-    """
-    context, is_agg = await _retrieve_context(question)
-    history = _get_chat_history(session_id)
-    messages = _build_messages(context, history, question, aggregation=is_agg)
-
-    llm = _get_llm()
-    response = await llm.ainvoke(messages)
-    answer = response.content
-
-    history.append((question, answer))
-    return answer
+    for pergunta, resposta in _get_chat_history(session_id)[-MAX_TROCAS_HISTORICO:]:
+        mensagens.append(HumanMessage(content=pergunta))
+        mensagens.append(AIMessage(content=resposta))
+    mensagens.append(HumanMessage(content=question))
+    return mensagens
 
 
 async def chat_stream(
     question: str,
     session_id: str = "default",
-) -> AsyncGenerator[str, None]:
-    """Mesmo que chat() mas retorna tokens via streaming."""
-    _t_start = time.perf_counter()  # [METRICS]
-    _t_ttft = None  # [METRICS]
+) -> AsyncGenerator[dict, None]:
+    """
+    Processa uma pergunta e emite eventos.
 
-    context, is_agg = await _retrieve_context(question)
-    history = _get_chat_history(session_id)
-    messages = _build_messages(context, history, question, aggregation=is_agg)
+    Cada evento é um dict {"tipo": "status"|"token", "texto": str}. Os eventos
+    de status descrevem qual ferramenta está rodando — servem tanto para o
+    usuário acompanhar quanto para manter bytes trafegando no SSE durante as
+    rodadas de ferramenta, quando nenhum token de resposta é gerado.
+    """
+    t_inicio = time.perf_counter()
+    t_primeiro_token = None
+    chamadas = 0
 
-    llm = _get_llm()
-    full_response = ""
-    async for chunk in llm.astream(messages):
-        token = chunk.content
-        if token:
-            if _t_ttft is None:  # [METRICS] primeiro token
-                _t_ttft = time.perf_counter()
-            full_response += token
-            yield token
+    mensagens = await _montar_mensagens(question, session_id)
+    if mensagens is None:
+        yield {"tipo": "token", "texto": SEM_DADOS}
+        return
 
-    _t_end = time.perf_counter()  # [METRICS]
-    ttft = (_t_ttft - _t_start) if _t_ttft else 0.0  # [METRICS]
-    total = _t_end - _t_start  # [METRICS]
-    logger.info(  # [METRICS]
-        f"[METRICS] chat_stream: TTFT={ttft:.3f}s tempo_total={total:.3f}s "
-        f"is_agg={is_agg}"
+    llm = _get_llm().bind_tools(tools.ESQUEMAS)
+    resposta_final = ""
+
+    for iteracao in range(settings.chat_max_iteracoes):
+        acumulado = None
+        async for chunk in llm.astream(mensagens):
+            acumulado = chunk if acumulado is None else acumulado + chunk
+            trecho = _texto_do_chunk(chunk.content)
+            if trecho:
+                if t_primeiro_token is None:
+                    t_primeiro_token = time.perf_counter()
+                resposta_final += trecho
+                yield {"tipo": "token", "texto": trecho}
+
+        if acumulado is None:
+            break
+
+        mensagens.append(acumulado)
+        tool_calls = getattr(acumulado, "tool_calls", None) or []
+
+        if not tool_calls:
+            break
+
+        # Última iteração permitida: não adianta executar ferramentas cujo
+        # resultado o modelo não terá chance de ler.
+        if iteracao == settings.chat_max_iteracoes - 1:
+            logger.warning(
+                f"Limite de {settings.chat_max_iteracoes} rodadas de ferramenta "
+                f"atingido para: {question[:80]!r}"
+            )
+            mensagens.pop()
+            break
+
+        for chamada in tool_calls:
+            chamadas += 1
+            nome, argumentos = chamada["name"], chamada.get("args") or {}
+            yield {"tipo": "status", "texto": tools.rotulo(nome, argumentos)}
+            logger.info(f"Ferramenta: {nome}({json.dumps(argumentos, ensure_ascii=False)})")
+            resultado = await tools.executar(nome, argumentos)
+            mensagens.append(
+                ToolMessage(content=resultado, tool_call_id=chamada["id"])
+            )
+
+    if resposta_final.strip():
+        historico = _get_chat_history(session_id)
+        historico.append((question, resposta_final))
+        del historico[:-MAX_TROCAS_HISTORICO]
+    else:
+        # O modelo consumiu todas as rodadas chamando ferramentas e nunca
+        # redigiu nada. Raro, mas sem isso o usuário recebe um balão vazio e
+        # não tem como saber o que houve. A troca não entra no histórico.
+        logger.warning(f"Nenhum texto gerado para: {question[:80]!r}")
+        yield {"tipo": "token", "texto": SEM_RESPOSTA}
+
+    ttft = (t_primeiro_token - t_inicio) if t_primeiro_token else 0.0
+    logger.info(
+        f"[METRICS] chat_stream: TTFT={ttft:.3f}s "
+        f"tempo_total={time.perf_counter() - t_inicio:.3f}s ferramentas={chamadas}"
     )
 
-    history.append((question, full_response))
+
+async def chat(question: str, session_id: str = "default") -> str:
+    """Versão sem streaming: consome chat_stream e devolve só o texto final."""
+    partes = [
+        evento["texto"]
+        async for evento in chat_stream(question, session_id)
+        if evento["tipo"] == "token"
+    ]
+    return "".join(partes)
 
 
 def clear_session(session_id: str) -> None:

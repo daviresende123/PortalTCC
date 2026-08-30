@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 90
     llm_max_retries: int = 2
     retrieval_timeout_seconds: int = 30
+    # Quantas rodadas de ferramenta o modelo pode fazer antes de ser obrigado
+    # a responder. Perguntas normais resolvem em 1; 4 dá margem para o modelo
+    # se corrigir depois de um erro e ainda combinar duas consultas.
+    chat_max_iteracoes: int = 4
+    # Intervalo entre comentários de keep-alive no SSE. Precisa ser bem menor
+    # que o IDLE_TIMEOUT_MS do frontend (45s), senão uma pausa longa do modelo
+    # — pensando antes do primeiro token — parece conexão morta.
+    sse_heartbeat_seconds: int = 10
 
     class Config:
         env_file = ".env"

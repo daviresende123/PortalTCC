@@ -1,193 +1,230 @@
-"""Tests for chat_service aggregation detection and context formatting."""
+"""
+Testes da camada de consulta e do serviço de chat.
+
+Tudo aqui roda sem banco e sem API: o que se testa é a tradução de filtros
+para SQL parametrizado, a validação de colunas e a montagem do prompt. As
+consultas em si são exercidas contra o PostgreSQL real (ver README).
+"""
 import sys
 import os
 
 # Allow importing from the backend root without installing the package
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from services.chat_service import _is_aggregation_query, _format_overview_as_context
+import pytest
+
+from services.query_service import (
+    ColunaDesconhecida,
+    _clausula_filtros,
+    _para_numero,
+    _validar,
+)
+
+PXRF_COLUNAS = ["File #", "DateTime", "Name", "Application", "Zn", "Zn Err", "Fe", "Pb"]
 
 
 # ---------------------------------------------------------------------------
-# _is_aggregation_query
+# _para_numero — as ferramentas recebem tudo como texto (limitação do schema
+# de function calling do Gemini), então a conversão acontece aqui
 # ---------------------------------------------------------------------------
 
-def test_list_samples_detected():
-    assert _is_aggregation_query("Quais amostras estão presentes nos dados?")
+def test_numero_decimal_com_ponto():
+    assert _para_numero("1.5") == 1.5
 
-def test_list_all_detected():
-    assert _is_aggregation_query("Liste todas as amostras disponíveis.")
 
-def test_how_many_detected():
-    assert _is_aggregation_query("Quantas amostras existem no dataset?")
+def test_numero_decimal_com_virgula():
+    assert _para_numero("1,5") == 1.5
 
-def test_total_detected():
-    assert _is_aggregation_query("Qual é o total de registros?")
 
-def test_distinct_detected():
-    assert _is_aggregation_query("Mostre os valores distintos de amostra.")
+def test_numero_inteiro():
+    assert _para_numero("42") == 42.0
 
-def test_unique_detected():
-    assert _is_aggregation_query("Quais são os únicos nomes de arquivo?")
 
-def test_average_detected():
-    assert _is_aggregation_query("Qual é a média de concentração de Fe?")
+def test_texto_nao_vira_numero():
+    assert _para_numero("PlantsF1") is None
 
-def test_max_detected():
-    assert _is_aggregation_query("Qual o máximo de Si no dataset?")
 
-def test_ranking_detected():
-    assert _is_aggregation_query("Faça um ranking das amostras por Fe.")
-
-def test_list_all_english():
-    assert _is_aggregation_query("list all samples")
-
-def test_how_many_english():
-    assert _is_aggregation_query("how many records are there?")
-
-# Record-level queries should NOT be detected as aggregation
-def test_specific_record_not_aggregation():
-    assert not _is_aggregation_query("Qual é o valor de Fe para a amostra ABC123?")
-
-def test_wavelength_lookup_not_aggregation():
-    assert not _is_aggregation_query("Qual o reflectância a 450nm da amostra X?")
-
-def test_what_is_not_aggregation():
-    assert not _is_aggregation_query("O que é o Portal TCC?")
+def test_booleano_nao_vira_numero():
+    # True viraria 1.0 num float() ingênuo e faria um filtro textual virar
+    # comparação numérica silenciosamente
+    assert _para_numero(True) is None
 
 
 # ---------------------------------------------------------------------------
-# _format_overview_as_context
+# _validar — a mensagem de erro volta ao modelo, que se corrige sozinho.
+# É isso que substituiu o dicionário de tradução de elementos.
 # ---------------------------------------------------------------------------
 
-SAMPLE_OVERVIEW = {
-    "total_records": 150,
-    "samples": ["A1", "A2", "B1", "B2", "C1"],
-    "files": [
-        {"file_name": "visnir.csv", "rows_count": 100, "columns": ["amostra", "450", "500"]},
-        {"file_name": "pxrf.csv", "rows_count": 50, "columns": ["amostra", "Fe", "Si"]},
+def test_coluna_valida_passa():
+    _validar(["Zn", "Fe"], PXRF_COLUNAS)
+
+
+def test_coluna_invalida_lista_as_disponiveis():
+    with pytest.raises(ColunaDesconhecida) as exc:
+        _validar(["Zinco"], PXRF_COLUNAS)
+    assert "Zinco" in str(exc.value)
+    assert "Zn" in str(exc.value)  # o modelo precisa ver as opções para corrigir
+
+
+# ---------------------------------------------------------------------------
+# _clausula_filtros
+# ---------------------------------------------------------------------------
+
+def test_sem_filtros_nao_gera_clausula():
+    assert _clausula_filtros(None, PXRF_COLUNAS) == ("", {})
+    assert _clausula_filtros([], PXRF_COLUNAS) == ("", {})
+
+
+def test_filtro_numerico_usa_parametros_vinculados():
+    sql, params = _clausula_filtros(
+        [{"coluna": "Fe", "operador": ">", "valor": "1.5"}], PXRF_COLUNAS
+    )
+    # O nome da coluna é VALOR (JSONB), não identificador interpolado
+    assert "Fe" not in sql
+    assert params["fc0"] == "Fe"
+    assert params["fv0"] == 1.5
+    assert ">" in sql
+
+
+def test_filtro_numerico_protege_contra_celula_de_texto():
+    # Sem o jsonb_typeof, uma célula de texto na coluna faz o ::numeric
+    # estourar e derruba a consulta inteira
+    sql, _ = _clausula_filtros(
+        [{"coluna": "Fe", "operador": ">=", "valor": "0.1"}], PXRF_COLUNAS
+    )
+    assert "jsonb_typeof" in sql
+    assert "::numeric" in sql
+
+
+def test_filtro_de_texto_nao_faz_cast_numerico():
+    sql, params = _clausula_filtros(
+        [{"coluna": "Application", "operador": "=", "valor": "PlantsF1"}], PXRF_COLUNAS
+    )
+    assert "::numeric" not in sql
+    assert params["fv0"] == "PlantsF1"
+
+
+def test_operador_contem_vira_ilike_com_curingas():
+    sql, params = _clausula_filtros(
+        [{"coluna": "Name", "operador": "contém", "valor": "P1"}], PXRF_COLUNAS
+    )
+    assert "ILIKE" in sql
+    assert params["fv0"] == "%P1%"
+
+
+def test_filtros_multiplos_sao_combinados_com_and():
+    sql, params = _clausula_filtros(
+        [
+            {"coluna": "Fe", "operador": ">", "valor": "1.0"},
+            {"coluna": "Application", "operador": "contém", "valor": "Plants"},
+        ],
+        PXRF_COLUNAS,
+    )
+    assert " AND " in sql
+    assert {"fc0", "fv0", "fc1", "fv1"} <= set(params)
+
+
+def test_filtro_com_coluna_inexistente_e_rejeitado():
+    with pytest.raises(ColunaDesconhecida):
+        _clausula_filtros(
+            [{"coluna": "Chumbo", "operador": ">", "valor": "1"}], PXRF_COLUNAS
+        )
+
+
+def test_operador_invalido_e_rejeitado():
+    with pytest.raises(ValueError):
+        _clausula_filtros(
+            [{"coluna": "Fe", "operador": "DROP", "valor": "1"}], PXRF_COLUNAS
+        )
+
+
+# ---------------------------------------------------------------------------
+# chat_service — montagem do prompt
+# ---------------------------------------------------------------------------
+
+from services.chat_service import _resumo_esquema, _texto_do_chunk
+
+DESCRICAO = {
+    "total_registros": 37,
+    "arquivos": [{"nome": "pXRF-Exemplo.csv", "registros": 37}],
+    "colunas": [
+        {"nome": "Name", "tipo": "texto", "preenchidos": 37, "distintos": 37},
+        {
+            "nome": "Application",
+            "tipo": "texto",
+            "preenchidos": 37,
+            "distintos": 2,
+            "valores": ["PlantsF1", "SoilF2"],
+        },
+        {"nome": "Zn", "tipo": "numérica", "preenchidos": 37},
+        {"nome": "Fe", "tipo": "numérica", "preenchidos": 37},
     ],
-    "all_columns": ["450", "500", "Fe", "Si", "amostra"],
 }
 
 
-def test_format_includes_all_samples():
-    ctx = _format_overview_as_context(SAMPLE_OVERVIEW)
-    for sample in SAMPLE_OVERVIEW["samples"]:
-        assert sample in ctx, f"Sample '{sample}' missing from formatted context"
+def test_resumo_lista_colunas_numericas():
+    resumo = _resumo_esquema(DESCRICAO)
+    assert "Zn" in resumo and "Fe" in resumo
+    assert "Colunas numéricas (2)" in resumo
 
 
-def test_format_includes_total():
-    ctx = _format_overview_as_context(SAMPLE_OVERVIEW)
-    assert "150" in ctx
+def test_resumo_expoe_valores_de_coluna_de_baixa_cardinalidade():
+    # O modelo precisa saber que "PlantsF1" existe para montar um filtro
+    resumo = _resumo_esquema(DESCRICAO)
+    assert "PlantsF1" in resumo and "SoilF2" in resumo
 
 
-def test_format_includes_file_names():
-    ctx = _format_overview_as_context(SAMPLE_OVERVIEW)
-    assert "visnir.csv" in ctx
-    assert "pxrf.csv" in ctx
+def test_resumo_omite_valores_de_coluna_de_alta_cardinalidade():
+    # 37 nomes de amostra no prompt seriam ruído; só a cardinalidade importa
+    resumo = _resumo_esquema(DESCRICAO)
+    assert "37 valores distintos" in resumo
 
 
-def test_format_includes_sample_count():
-    ctx = _format_overview_as_context(SAMPLE_OVERVIEW)
-    assert "5" in ctx  # 5 distinct samples
+def test_resumo_nao_contem_dados_apenas_estrutura():
+    # Nenhum valor medido pode vazar para o prompt: é o banco que calcula
+    resumo = _resumo_esquema(DESCRICAO)
+    assert "0.0" not in resumo
 
 
-def test_format_no_samples():
-    overview = {**SAMPLE_OVERVIEW, "samples": []}
-    ctx = _format_overview_as_context(overview)
-    assert "Nenhuma coluna" in ctx or "nenhuma" in ctx.lower() or "amostra" in ctx
+def test_texto_do_chunk_aceita_string():
+    assert _texto_do_chunk("olá") == "olá"
 
 
-# ---------------------------------------------------------------------------
-# _resolve_numeric_column
-# ---------------------------------------------------------------------------
-
-from services.chat_service import _resolve_numeric_column, _format_records_as_table
-
-PXRF_COLUMNS = ["File #", "DateTime", "amostra", "Mg", "Mg Err", "Fe", "Fe Err",
-                "Zn", "Zn Err", "Pb", "Pb Err", "K", "K Err"]
+def test_texto_do_chunk_aceita_lista_multimodal():
+    # O Gemini às vezes devolve content como lista de partes
+    assert _texto_do_chunk([{"text": "olá "}, {"text": "mundo"}]) == "olá mundo"
 
 
-def test_resolve_element_name_in_portuguese():
-    assert _resolve_numeric_column("qual a média de zinco na amostra", PXRF_COLUMNS) == "Zn"
-
-
-def test_resolve_element_symbol():
-    assert _resolve_numeric_column("qual a media de Zn", PXRF_COLUMNS) == "Zn"
-
-
-def test_resolve_ignores_err_column_by_default():
-    # "média de Zn" nunca pode cair em "Zn Err", que é a incerteza da medição
-    assert _resolve_numeric_column("média de Zn", PXRF_COLUMNS) == "Zn"
-
-
-def test_resolve_err_column_when_asked():
-    assert _resolve_numeric_column("média do erro de zinco", PXRF_COLUMNS) == "Zn Err"
-
-
-def test_resolve_accented_and_unaccented():
-    assert _resolve_numeric_column("máximo de chumbo", PXRF_COLUMNS) == "Pb"
-    assert _resolve_numeric_column("maximo de magnesio", PXRF_COLUMNS) == "Mg"
-
-
-def test_resolve_single_letter_requires_exact_case():
-    # "K" maiúsculo é a coluna; um "k" solto em outra palavra não é
-    assert _resolve_numeric_column("qual a média de K", PXRF_COLUMNS) == "K"
-    assert _resolve_numeric_column("qual o total de dados", PXRF_COLUMNS) is None
-
-
-def test_resolve_returns_none_when_no_column_mentioned():
-    assert _resolve_numeric_column("qual o total de dados contido na planilha", PXRF_COLUMNS) is None
-
-
-def test_resolve_empty_columns():
-    assert _resolve_numeric_column("média de zinco", []) is None
+def test_texto_do_chunk_ignora_conteudo_nao_textual():
+    assert _texto_do_chunk(None) == ""
+    assert _texto_do_chunk([{"functionCall": {"name": "estatisticas"}}]) == ""
 
 
 # ---------------------------------------------------------------------------
-# _format_records_as_table
+# routes.chat — tradução de falhas da API
 # ---------------------------------------------------------------------------
 
-FULL = {
-    "records": [
-        {"file_name": "a.csv", "data": {"amostra": "A1", "Fe": 0.13, "Zn": 0.0064}},
-        {"file_name": "a.csv", "data": {"amostra": "A2", "Fe": 0.21, "Zn": None}},
-    ],
-    "columns": ["amostra", "Fe", "Zn"],
-    "total_records": 2,
-    "truncated": False,
-}
+from routes.chat import _mensagem_amigavel
 
 
-def test_table_has_header_once_and_one_line_per_record():
-    lines = _format_records_as_table(FULL).split("\n")
-    # 1 cabeçalho de contexto + 1 linha de colunas + 2 registros
-    assert len(lines) == 4
-    assert lines[1] == "amostra,Fe,Zn"
+def test_erro_de_cota_vira_mensagem_acionavel():
+    # O erro cru do Google traz dezenas de linhas de quota_dimensions que não
+    # dizem ao usuário o que fazer
+    bruto = Exception(
+        "429 You exceeded your current quota. quota_metric: "
+        "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+    )
+    msg = _mensagem_amigavel(bruto)
+    assert "Limite de uso" in msg
+    assert "quota_metric" not in msg
 
 
-def test_table_announces_completeness():
-    header = _format_records_as_table(FULL).split("\n")[0]
-    assert "2 de 2" in header
-    assert "TODOS" in header
+def test_erro_de_chave_invalida_aponta_o_env():
+    msg = _mensagem_amigavel(Exception("Invalid API key provided"))
+    assert ".env" in msg
 
 
-def test_table_renders_null_as_empty():
-    lines = _format_records_as_table(FULL).split("\n")
-    assert lines[3] == "A2,0.21,"
-
-
-def test_table_adds_file_column_only_when_multiple_files():
-    single = _format_records_as_table(FULL).split("\n")[1]
-    assert not single.startswith("arquivo")
-
-    multi = {**FULL, "records": FULL["records"] + [
-        {"file_name": "b.csv", "data": {"amostra": "B1", "Fe": 0.5, "Zn": 0.1}}
-    ]}
-    assert _format_records_as_table(multi).split("\n")[1].startswith("arquivo,")
-
-
-def test_table_falls_back_to_json_keys_when_columns_missing():
-    lines = _format_records_as_table({**FULL, "columns": []}).split("\n")
-    assert lines[1] == "Fe,Zn,amostra"  # ordenadas, já que não há ordem original
+def test_erro_desconhecido_preserva_o_texto_original():
+    # Falha inesperada não pode ser engolida: precisa chegar ao desenvolvedor
+    msg = _mensagem_amigavel(Exception("KeyError: 'grupo'"))
+    assert "KeyError" in msg

@@ -12,9 +12,9 @@ const btnClear = document.getElementById("btnClear");
 // --- Enviar mensagem ---
 
 // Se o servidor ficar este tempo sem mandar NENHUM byte, a requisição é
-// abortada. O contador reinicia a cada pedaço recebido, então uma resposta
-// longa continua fluindo — o que ele mata é a espera infinita quando a API
-// do Google trava em retry.
+// abortada. O contador reinicia a cada pedaço recebido — e o backend agora
+// emite um evento de status a cada ferramenta que executa, então o silêncio
+// passou a ser sinal real de travamento, não apenas de pergunta demorada.
 const IDLE_TIMEOUT_MS = 45000;
 
 async function sendMessage() {
@@ -85,9 +85,18 @@ async function sendMessage() {
                 if (data.error) {
                     serverError = data.error;
                 }
+                // Status: qual ferramenta o modelo está executando agora.
+                // Aparece no indicador de digitação e é substituído a cada
+                // etapa, então o usuário vê o progresso em vez de uma espera
+                // opaca. Cada um destes também reinicia o timer de ociosidade
+                // logo acima, que é o que impede o aborto prematuro.
+                if (data.status) {
+                    showTypingIndicator();
+                    setTypingStatus(data.status);
+                }
                 if (data.token) {
+                    hideTypingIndicator();
                     if (!bubbleEl) {
-                        hideTypingIndicator();
                         bubbleEl = appendMessage("", "bot");
                     }
                     botMessage += data.token;
@@ -173,12 +182,22 @@ function appendMessage(text, type) {
 }
 
 function showTypingIndicator() {
+    if (document.getElementById("typingIndicator")) return;
     const indicator = document.createElement("div");
     indicator.className = "typing-indicator";
     indicator.id = "typingIndicator";
-    indicator.innerHTML = "<span></span><span></span><span></span>";
+    indicator.innerHTML =
+        '<span></span><span></span><span></span><em class="typing-status"></em>';
     chatMessages.appendChild(indicator);
     scrollToBottom();
+}
+
+function setTypingStatus(text) {
+    const el = document.querySelector("#typingIndicator .typing-status");
+    if (el) {
+        el.textContent = text;
+        scrollToBottom();
+    }
 }
 
 function hideTypingIndicator() {

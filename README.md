@@ -279,28 +279,39 @@ CSV → detecção do formato → tratamento → PostgreSQL → embeddings → C
 
 ### Quando você faz uma pergunta
 
-O chatbot usa **RAG** (*Retrieval-Augmented Generation*): em vez de o
-modelo de linguagem "chutar" com base no que ele aprendeu no treinamento,
-ele recebe junto com a pergunta os dados reais que você enviou.
+O chatbot usa **function calling**: o modelo não recebe os dados no
+prompt, e sim a *estrutura* do dataset e a descrição de quatro ferramentas.
+Ele decide sozinho quais chamar, e o banco faz o trabalho.
 
-O sistema classifica sua pergunta em dois tipos:
+| Ferramenta | O que faz |
+|---|---|
+| `descrever_dataset` | Arquivos, colunas, tipos e valores distintos |
+| `estatisticas` | Contagem, média, mediana, moda, desvio, percentis, soma — em SQL, com filtro e agrupamento opcionais |
+| `consultar_registros` | Linhas individuais, filtradas e ordenadas |
+| `buscar_semantica` | Busca por similaridade no ChromaDB |
 
-- **Pergunta sobre registros específicos** — busca por similaridade no
-  ChromaDB e recupera os 10 registros mais relevantes.
-- **Pergunta de agregação** (listar, contar, média, máximo, ranking...) —
-  consulta o PostgreSQL diretamente para montar um resumo completo do
-  conjunto de dados, garantindo que nenhuma amostra fique de fora, e
-  complementa com a busca vetorial.
+Assim, "qual a média de zinco por aplicação?" vira
+`estatisticas(["Zn"], agrupar_por="Application")`, e o número que aparece na
+tela foi calculado pelo PostgreSQL — não estimado pelo modelo. Modelos de
+linguagem erram aritmética; bancos de dados não.
 
-O contexto recuperado, mais as últimas 10 trocas da conversa, são enviados
-ao Gemini, que responde em português.
+O modelo pode encadear até 4 rodadas de ferramenta por pergunta, o que lhe
+dá espaço para se corrigir: se ele pedir uma coluna chamada "Zinco", recebe
+de volta a lista de colunas reais e tenta "Zn" na rodada seguinte.
+
+Enquanto as ferramentas rodam, o backend emite eventos de status pelo SSE
+("Calculando estatísticas de todas as colunas…"), que aparecem no indicador
+de digitação. Além de mostrar o progresso, eles mantêm a conexão viva:
+perguntas pesadas podem passar dezenas de segundos sem gerar nenhum token,
+e sem esses eventos o navegador aborta a requisição achando que travou.
 
 ### Por que dois bancos?
 
 O **PostgreSQL com TimescaleDB** guarda o dado estruturado e responde bem
 a perguntas exatas — contagens, listas completas, agregações. O
 **ChromaDB** guarda os vetores e responde bem a perguntas por semelhança
-de significado. O sistema usa cada um onde ele é melhor.
+de significado. O sistema usa cada um onde ele é melhor — e quem escolhe
+qual usar, a cada pergunta, é o próprio modelo.
 
 ---
 
@@ -338,9 +349,11 @@ PortalTCC/
 │   │   └── chat.py             endpoints do chatbot
 │   ├── services/
 │   │   ├── csv_service.py      detecção de formato e tratamento dos CSVs
-│   │   ├── db_service.py       persistência e consultas agregadas
+│   │   ├── db_service.py       persistência dos CSVs enviados
 │   │   ├── embedding_service.py geração de vetores e ChromaDB
-│   │   └── chat_service.py     pipeline RAG
+│   │   ├── chat_service.py     laço de function calling
+│   │   ├── tools.py            ferramentas expostas ao modelo
+│   │   └── query_service.py    consultas analíticas parametrizadas
 │   ├── db/connection.py        conexão e criação do schema
 │   └── tests/                  testes automatizados
 ├── frontend/                   HTML, CSS e JS puro, sem build
