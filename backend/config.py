@@ -32,18 +32,13 @@ class Settings(BaseSettings):
     # LLM
     llm_model: str = "gemini-2.5-flash"
     llm_temperature: float = 0.3
-    # Timeouts: sem eles, uma chamada à API do Google sob rate limit fica em
-    # retry indefinido e o chat trava "carregando" para sempre.
+    # Sem timeout, uma chamada sob rate limit fica em retry indefinido.
     llm_timeout_seconds: int = 90
     llm_max_retries: int = 2
     retrieval_timeout_seconds: int = 30
-    # Quantas rodadas de ferramenta o modelo pode fazer antes de ser obrigado
-    # a responder. Perguntas normais resolvem em 1; 4 dá margem para o modelo
-    # se corrigir depois de um erro e ainda combinar duas consultas.
+    # Rodadas de ferramenta antes de o modelo ser obrigado a responder.
     chat_max_iteracoes: int = 4
-    # Intervalo entre comentários de keep-alive no SSE. Precisa ser bem menor
-    # que o IDLE_TIMEOUT_MS do frontend (45s), senão uma pausa longa do modelo
-    # — pensando antes do primeiro token — parece conexão morta.
+    # Deve ser bem menor que o IDLE_TIMEOUT_MS do frontend (45s).
     sse_heartbeat_seconds: int = 10
 
     class Config:
@@ -56,5 +51,4 @@ class Settings(BaseSettings):
         return self.max_file_size_mb * 1024 * 1024
 
 
-# Instância global de configurações
 settings = Settings()

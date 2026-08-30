@@ -9,7 +9,6 @@ from routes import upload, chat
 from config import settings
 import logging
 
-# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -20,14 +19,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize the database on startup."""
-    logger.info("Initializing database...")
+    """Inicializa o banco de dados na subida da aplicação."""
+    logger.info("Inicializando banco de dados...")
     await init_db()
-    logger.info("Database ready")
+    logger.info("Banco de dados pronto")
     yield
 
 
-# Criar aplicação FastAPI
 app = FastAPI(
     title="Portal TCC - API",
     description="API para upload de dados CSV para PostgreSQL",
@@ -35,7 +33,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configurar CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, "http://localhost:5500", "http://127.0.0.1:5500"],
@@ -44,7 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Registrar rotas
 app.include_router(upload.router)
 app.include_router(chat.router)
 
@@ -65,19 +61,10 @@ async def health():
     return {"status": "healthy"}
 
 
-# ---------------------------------------------------------------------------
-# Frontend estático
-#
-# O mount precisa ser o ÚLTIMO registro de rota: o Starlette resolve as
-# rotas na ordem de registro, então montar "/" antes dos routers faria
-# esta rota capturar tudo e os endpoints /api/* deixariam de responder.
-#
-# html=True faz "/" servir o index.html e habilita as URLs diretas
-# (ex.: /chat.html), dispensando o Live Server e o segundo terminal.
-# ---------------------------------------------------------------------------
+# Frontend estático. Este mount precisa ser o ÚLTIMO registro de rota: o
+# Starlette resolve as rotas na ordem de registro e "/" captura tudo.
 _BASE_DIR = Path(__file__).resolve().parent
-# Na imagem Docker o frontend é copiado para backend/frontend; rodando
-# localmente com "python main.py" ele fica um nível acima, na raiz do repo.
+# Docker copia o frontend para backend/frontend; localmente ele fica na raiz.
 FRONTEND_DIR = _BASE_DIR / "frontend"
 if not FRONTEND_DIR.is_dir():
     FRONTEND_DIR = _BASE_DIR.parent / "frontend"

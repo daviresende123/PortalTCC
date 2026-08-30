@@ -1,14 +1,13 @@
 """
 Testes da camada de consulta e do serviço de chat.
 
-Tudo aqui roda sem banco e sem API: o que se testa é a tradução de filtros
-para SQL parametrizado, a validação de colunas e a montagem do prompt. As
-consultas em si são exercidas contra o PostgreSQL real (ver README).
+Rodam sem banco e sem API: cobrem a tradução de filtros para SQL
+parametrizado, a validação de colunas e a montagem do prompt.
 """
 import sys
 import os
 
-# Allow importing from the backend root without installing the package
+# Permite importar da raiz de backend/ sem instalar o pacote.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -23,10 +22,7 @@ from services.query_service import (
 PXRF_COLUNAS = ["File #", "DateTime", "Name", "Application", "Zn", "Zn Err", "Fe", "Pb"]
 
 
-# ---------------------------------------------------------------------------
-# _para_numero — as ferramentas recebem tudo como texto (limitação do schema
-# de function calling do Gemini), então a conversão acontece aqui
-# ---------------------------------------------------------------------------
+# --- _para_numero ---
 
 def test_numero_decimal_com_ponto():
     assert _para_numero("1.5") == 1.5
@@ -45,15 +41,12 @@ def test_texto_nao_vira_numero():
 
 
 def test_booleano_nao_vira_numero():
-    # True viraria 1.0 num float() ingênuo e faria um filtro textual virar
-    # comparação numérica silenciosamente
+    # True viraria 1.0 num float() ingênuo, transformando um filtro textual em
+    # comparação numérica silenciosamente.
     assert _para_numero(True) is None
 
 
-# ---------------------------------------------------------------------------
-# _validar — a mensagem de erro volta ao modelo, que se corrige sozinho.
-# É isso que substituiu o dicionário de tradução de elementos.
-# ---------------------------------------------------------------------------
+# --- _validar ---
 
 def test_coluna_valida_passa():
     _validar(["Zn", "Fe"], PXRF_COLUNAS)
@@ -63,12 +56,10 @@ def test_coluna_invalida_lista_as_disponiveis():
     with pytest.raises(ColunaDesconhecida) as exc:
         _validar(["Zinco"], PXRF_COLUNAS)
     assert "Zinco" in str(exc.value)
-    assert "Zn" in str(exc.value)  # o modelo precisa ver as opções para corrigir
+    assert "Zn" in str(exc.value)  # o modelo precisa ver as opções para corrigir-se
 
 
-# ---------------------------------------------------------------------------
-# _clausula_filtros
-# ---------------------------------------------------------------------------
+# --- _clausula_filtros ---
 
 def test_sem_filtros_nao_gera_clausula():
     assert _clausula_filtros(None, PXRF_COLUNAS) == ("", {})
@@ -79,7 +70,7 @@ def test_filtro_numerico_usa_parametros_vinculados():
     sql, params = _clausula_filtros(
         [{"coluna": "Fe", "operador": ">", "valor": "1.5"}], PXRF_COLUNAS
     )
-    # O nome da coluna é VALOR (JSONB), não identificador interpolado
+    # O nome da coluna é valor vinculado (JSONB), não identificador interpolado.
     assert "Fe" not in sql
     assert params["fc0"] == "Fe"
     assert params["fv0"] == 1.5
@@ -87,8 +78,7 @@ def test_filtro_numerico_usa_parametros_vinculados():
 
 
 def test_filtro_numerico_protege_contra_celula_de_texto():
-    # Sem o jsonb_typeof, uma célula de texto na coluna faz o ::numeric
-    # estourar e derruba a consulta inteira
+    # Sem o jsonb_typeof, uma célula de texto faz o ::numeric estourar.
     sql, _ = _clausula_filtros(
         [{"coluna": "Fe", "operador": ">=", "valor": "0.1"}], PXRF_COLUNAS
     )
@@ -138,9 +128,7 @@ def test_operador_invalido_e_rejeitado():
         )
 
 
-# ---------------------------------------------------------------------------
-# chat_service — montagem do prompt
-# ---------------------------------------------------------------------------
+# --- chat_service: montagem do prompt ---
 
 from services.chat_service import _resumo_esquema, _texto_do_chunk
 
@@ -169,19 +157,19 @@ def test_resumo_lista_colunas_numericas():
 
 
 def test_resumo_expoe_valores_de_coluna_de_baixa_cardinalidade():
-    # O modelo precisa saber que "PlantsF1" existe para montar um filtro
+    # O modelo precisa saber que "PlantsF1" existe para montar um filtro.
     resumo = _resumo_esquema(DESCRICAO)
     assert "PlantsF1" in resumo and "SoilF2" in resumo
 
 
 def test_resumo_omite_valores_de_coluna_de_alta_cardinalidade():
-    # 37 nomes de amostra no prompt seriam ruído; só a cardinalidade importa
+    # 37 nomes de amostra seriam ruído no prompt; só a cardinalidade importa.
     resumo = _resumo_esquema(DESCRICAO)
     assert "37 valores distintos" in resumo
 
 
 def test_resumo_nao_contem_dados_apenas_estrutura():
-    # Nenhum valor medido pode vazar para o prompt: é o banco que calcula
+    # Nenhum valor medido pode vazar para o prompt: quem calcula é o banco.
     resumo = _resumo_esquema(DESCRICAO)
     assert "0.0" not in resumo
 
@@ -191,7 +179,7 @@ def test_texto_do_chunk_aceita_string():
 
 
 def test_texto_do_chunk_aceita_lista_multimodal():
-    # O Gemini às vezes devolve content como lista de partes
+    # O Gemini às vezes devolve content como lista de partes.
     assert _texto_do_chunk([{"text": "olá "}, {"text": "mundo"}]) == "olá mundo"
 
 
@@ -200,16 +188,12 @@ def test_texto_do_chunk_ignora_conteudo_nao_textual():
     assert _texto_do_chunk([{"functionCall": {"name": "estatisticas"}}]) == ""
 
 
-# ---------------------------------------------------------------------------
-# routes.chat — tradução de falhas da API
-# ---------------------------------------------------------------------------
+# --- routes.chat: tradução de falhas da API ---
 
 from routes.chat import _mensagem_amigavel
 
 
 def test_erro_de_cota_vira_mensagem_acionavel():
-    # O erro cru do Google traz dezenas de linhas de quota_dimensions que não
-    # dizem ao usuário o que fazer
     bruto = Exception(
         "429 You exceeded your current quota. quota_metric: "
         "generativelanguage.googleapis.com/generate_content_free_tier_requests"
@@ -225,6 +209,6 @@ def test_erro_de_chave_invalida_aponta_o_env():
 
 
 def test_erro_desconhecido_preserva_o_texto_original():
-    # Falha inesperada não pode ser engolida: precisa chegar ao desenvolvedor
+    # Falha inesperada não pode ser engolida: precisa chegar ao desenvolvedor.
     msg = _mensagem_amigavel(Exception("KeyError: 'grupo'"))
     assert "KeyError" in msg

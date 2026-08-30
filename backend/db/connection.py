@@ -1,4 +1,4 @@
-"""Database connection, session factory, and schema initialization."""
+"""Conexão com o banco, fábrica de sessões e criação do schema."""
 import logging
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -18,37 +18,27 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db():
-    """FastAPI dependency that yields an async database session."""
+    """Dependência do FastAPI que fornece uma sessão assíncrona."""
     async with AsyncSessionLocal() as session:
         yield session
 
 
 async def init_db() -> None:
     """
-    Initialize PostgreSQL extensions, tables, and indexes.
+    Cria a extensão TimescaleDB, as tabelas e os índices.
 
-    Extensions required:
-      - timescaledb  (time-series partitioning for the records table)
+    - files   : metadados de cada CSV enviado
+    - records : linhas do CSV em JSONB, como hypertable particionada por
+                uploaded_at
 
-    Tables created:
-      - files   : metadata for each uploaded CSV file
-      - records : individual CSV rows stored as JSONB; converted to a
-                  TimescaleDB hypertable partitioned by uploaded_at
-
-    Note: vector embeddings are stored externally in ChromaDB
-    (see services/embedding_service.py), not in PostgreSQL.
+    Os vetores de embedding ficam no ChromaDB (services/embedding_service.py),
+    não no PostgreSQL.
     """
     async with engine.begin() as conn:
-        # ------------------------------------------------------------------
-        # Extensions
-        # ------------------------------------------------------------------
         await conn.execute(
             text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
         )
 
-        # ------------------------------------------------------------------
-        # files table — one row per uploaded CSV file
-        # ------------------------------------------------------------------
         await conn.execute(
             text("""
                 CREATE TABLE IF NOT EXISTS files (
@@ -61,10 +51,7 @@ async def init_db() -> None:
             """)
         )
 
-        # ------------------------------------------------------------------
-        # records table — individual CSV rows as JSONB
-        # PRIMARY KEY must include the time column for TimescaleDB
-        # ------------------------------------------------------------------
+        # A chave primária precisa incluir a coluna de tempo (TimescaleDB).
         await conn.execute(
             text("""
                 CREATE TABLE IF NOT EXISTS records (
@@ -77,7 +64,6 @@ async def init_db() -> None:
             """)
         )
 
-        # Convert records to a TimescaleDB hypertable (idempotent)
         await conn.execute(
             text(
                 "SELECT create_hypertable("
@@ -99,4 +85,4 @@ async def init_db() -> None:
             )
         )
 
-    logger.info("Database initialized successfully")
+    logger.info("Banco de dados inicializado")

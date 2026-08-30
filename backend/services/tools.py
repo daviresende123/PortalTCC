@@ -1,21 +1,14 @@
 """
 Ferramentas expostas ao modelo (function calling).
 
-O modelo não recebe mais os dados no prompt: recebe a *descrição* destas
-quatro funções e decide qual chamar, com quais argumentos. O PostgreSQL
-calcula, o ChromaDB busca por semelhança, e o modelo só interpreta os
-resultados.
-
 As descrições em ESQUEMAS são enviadas ao Gemini como especificação das
-ferramentas — são efetivamente parte do prompt, e é por elas que o modelo
-decide entre estatística exata e busca semântica. Vale tratá-las como texto
-de prompt na hora de ajustar comportamento.
+ferramentas: são efetivamente parte do prompt, e é por elas que o modelo
+decide entre estatística exata e busca semântica. Ajuste-as com esse cuidado.
 
-Por que os schemas são escritos à mão, e não inferidos das assinaturas com
-@tool: o conversor do langchain-google-genai 2.0.8 emite arrays sem o campo
-`items`, e o Gemini rejeita a requisição inteira com
-"function_declarations[...].items: missing field". Declarar o dicionário
-explicitamente contorna isso e, de quebra, deixa o contrato visível.
+Os schemas são escritos à mão em vez de inferidos das assinaturas com @tool
+porque o conversor do langchain-google-genai 2.0.8 emite arrays sem o campo
+`items` e o Gemini rejeita a requisição inteira com
+"function_declarations[...].items: missing field".
 """
 import asyncio
 import json
@@ -27,9 +20,8 @@ from services.query_service import ColunaDesconhecida
 
 logger = logging.getLogger(__name__)
 
-# O valor do filtro é sempre string: o schema de function calling do Gemini
-# não aceita união de tipos, e "1.5" é convertido para número no
-# query_service quando a comparação for numérica.
+# O valor do filtro é sempre string: o schema de function calling do Gemini não
+# aceita união de tipos. A conversão para número acontece no query_service.
 _FILTRO = {
     "type": "object",
     "description": "Uma condição sobre uma coluna.",
@@ -166,9 +158,7 @@ ESQUEMAS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Executores
-# ---------------------------------------------------------------------------
+# --- Executores ---
 
 async def _descrever_dataset() -> dict:
     return await query_service.descrever_dataset()
@@ -208,9 +198,8 @@ async def _buscar_semantica(texto: str, k: int = 10) -> dict:
     retriever = get_vector_store().as_retriever(
         search_type="similarity", search_kwargs={"k": max(1, min(int(k or 10), 50))}
     )
-    # A busca embeda o texto pela API do Google, e essa chamada não tem timeout
-    # próprio: sob rate limit (429) o cliente fica em retry sem nunca desistir.
-    # O wait_for é o que impede o chat de travar carregando.
+    # A chamada de embedding não tem timeout próprio: sob rate limit (429) o
+    # cliente entra em retry sem nunca desistir.
     try:
         docs = await asyncio.wait_for(
             retriever.ainvoke(texto), timeout=settings.retrieval_timeout_seconds
@@ -236,11 +225,10 @@ _EXECUTORES = {
 
 def rotulo(nome: str, argumentos: dict) -> str:
     """
-    Texto amigável mostrado ao usuário enquanto a ferramenta roda.
+    Texto mostrado ao usuário enquanto a ferramenta roda.
 
-    Além de informar, é o que mantém bytes fluindo no SSE durante as rodadas
-    de ferramenta — sem isso o timer de ociosidade do frontend aborta uma
-    requisição que está perfeitamente saudável.
+    Também mantém bytes fluindo no SSE, o que impede o timer de ociosidade do
+    frontend de abortar uma requisição saudável.
     """
     if nome == "descrever_dataset":
         return "Verificando a estrutura dos dados…"
@@ -260,10 +248,9 @@ async def executar(nome: str, argumentos: dict) -> str:
     """
     Executa uma ferramenta e devolve o resultado serializado.
 
-    Erros não sobem como exceção: viram um resultado que o modelo lê e usa
-    para se corrigir na rodada seguinte. É isso que substitui o dicionário de
-    tradução de elementos que existia antes — se o modelo pedir "Zinco", ele
-    recebe de volta a lista de colunas reais e tenta "Zn".
+    Erros não sobem como exceção: viram um resultado que o modelo lê para se
+    corrigir na rodada seguinte. Se ele pedir "Zinco", recebe de volta a lista
+    de colunas reais e tenta "Zn".
     """
     executor = _EXECUTORES.get(nome)
     if executor is None:

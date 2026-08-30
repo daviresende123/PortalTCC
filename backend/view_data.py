@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""
-Script para visualizar dados do PostgreSQL de forma amigável.
-"""
+"""Script de linha de comando para inspecionar os dados no PostgreSQL."""
 import asyncio
 import sys
 import os
 
-# Allow running from the backend/ directory without installing the package
+# Permite rodar a partir de backend/ sem instalar o pacote.
 sys.path.insert(0, os.path.dirname(__file__))
 
 import asyncpg
@@ -24,7 +22,7 @@ def print_header(text):
 
 
 def _asyncpg_url(sqlalchemy_url: str) -> str:
-    """Convert a SQLAlchemy async URL to a plain asyncpg URL."""
+    """Converte a URL do SQLAlchemy para o formato aceito pelo asyncpg."""
     return sqlalchemy_url.replace("postgresql+asyncpg://", "postgresql://")
 
 
@@ -41,9 +39,6 @@ async def main():
         sys.exit(1)
 
     try:
-        # ------------------------------------------------------------------
-        # 1. INFORMACOES GERAIS
-        # ------------------------------------------------------------------
         print_header("INFORMACOES GERAIS")
 
         total_files = await conn.fetchval("SELECT COUNT(*) FROM files")
@@ -57,7 +52,6 @@ async def main():
             print("Faca upload de um arquivo CSV primeiro.\n")
             return
 
-        # Distinct columns across all records
         column_rows = await conn.fetch(
             "SELECT DISTINCT key FROM records, jsonb_object_keys(data) AS key ORDER BY key"
         )
@@ -65,9 +59,6 @@ async def main():
         print(f"Colunas presentes : {', '.join(columns)}")
         print()
 
-        # ------------------------------------------------------------------
-        # 2. UPLOADS RECENTES
-        # ------------------------------------------------------------------
         print_header("UPLOADS RECENTES")
 
         files = await conn.fetch(
@@ -87,9 +78,6 @@ async def main():
             print(f"       Enviado  : {ts}")
             print()
 
-        # ------------------------------------------------------------------
-        # 3. AMOSTRA DE DADOS (ultimos 10 registros)
-        # ------------------------------------------------------------------
         print_header("AMOSTRA DE DADOS (ultimos 10 registros)")
 
         sample = await conn.fetch(
@@ -109,9 +97,6 @@ async def main():
                 print(f"    {k}: {v}")
             print()
 
-        # ------------------------------------------------------------------
-        # 4. SERIES TEMPORAIS (TimescaleDB) — registros por hora
-        # ------------------------------------------------------------------
         print_header("SERIES TEMPORAIS - Registros por hora")
 
         buckets = await conn.fetch(
@@ -134,9 +119,6 @@ async def main():
             print("  (sem dados suficientes)")
         print()
 
-        # ------------------------------------------------------------------
-        # Resumo final
-        # ------------------------------------------------------------------
         print_separator()
         print(f"Visualizacao concluida. Total: {total_records} registro(s).")
         print_separator()

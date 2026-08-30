@@ -1,5 +1,5 @@
-// Caminho relativo: o próprio FastAPI serve esta página, então a
-// requisição vai para a mesma origem e dispensa CORS.
+// Caminho relativo: o próprio FastAPI serve esta página, então a requisição
+// vai para a mesma origem e dispensa CORS.
 const API_BASE = "/api/chat";
 
 let sessionId = null;
@@ -11,10 +11,9 @@ const btnClear = document.getElementById("btnClear");
 
 // --- Enviar mensagem ---
 
-// Se o servidor ficar este tempo sem mandar NENHUM byte, a requisição é
-// abortada. O contador reinicia a cada pedaço recebido — e o backend agora
-// emite um evento de status a cada ferramenta que executa, então o silêncio
-// passou a ser sinal real de travamento, não apenas de pergunta demorada.
+// Tempo sem receber nenhum byte do servidor antes de abortar a requisição. O
+// contador reinicia a cada pedaço recebido, incluindo os eventos de status e
+// os heartbeats do SSE.
 const IDLE_TIMEOUT_MS = 45000;
 
 async function sendMessage() {
@@ -51,9 +50,8 @@ async function sendMessage() {
             throw new Error(`Erro do servidor: ${response.status}`);
         }
 
-        // O indicador só sai quando o primeiro token chega. O StreamingResponse
-        // manda os headers na hora, muito antes do modelo começar a responder;
-        // esconder aqui deixaria um balão vazio na tela durante toda a espera.
+        // O indicador de digitação só sai quando o primeiro token chega: os
+        // headers do StreamingResponse chegam muito antes disso.
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let botMessage = "";
@@ -66,8 +64,8 @@ async function sendMessage() {
             if (done) break;
             resetIdleTimer();
 
-            // Um chunk da rede pode cortar uma linha do SSE no meio. Guardar o
-            // resto no buffer evita perder tokens em respostas longas.
+            // Um chunk da rede pode cortar uma linha do SSE no meio; o resto
+            // fica no buffer para ser completado no próximo chunk.
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
             buffer = lines.pop();
@@ -79,17 +77,14 @@ async function sendMessage() {
                 try {
                     data = JSON.parse(line.slice(6));
                 } catch (e) {
-                    continue; // Ignora linhas mal-formadas
+                    continue;
                 }
 
                 if (data.error) {
                     serverError = data.error;
                 }
-                // Status: qual ferramenta o modelo está executando agora.
-                // Aparece no indicador de digitação e é substituído a cada
-                // etapa, então o usuário vê o progresso em vez de uma espera
-                // opaca. Cada um destes também reinicia o timer de ociosidade
-                // logo acima, que é o que impede o aborto prematuro.
+                // Qual ferramenta está rodando agora, exibido no indicador de
+                // digitação e substituído a cada etapa.
                 if (data.status) {
                     showTypingIndicator();
                     setTypingStatus(data.status);
@@ -148,7 +143,7 @@ async function clearSession() {
                 method: "DELETE",
             });
         } catch (e) {
-            // Ignora erro ao limpar sessão remota
+            // O histórico local é limpo de qualquer forma.
         }
     }
     sessionId = null;

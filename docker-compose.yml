@@ -7,10 +7,8 @@
 
 services:
   db:
-    # Tag FIXA de propósito: a imagem já traz a extensão TimescaleDB
-    # instalada, eliminando toda a configuração manual do PostgreSQL.
-    # Fixar a versão evita que uma atualização futura da imagem altere
-    # o comportamento de create_hypertable() usado em db/connection.py.
+    # Imagem com a extensão TimescaleDB já instalada. Versão fixa para que uma
+    # atualização não altere o create_hypertable() de db/connection.py.
     image: timescale/timescaledb:2.17.2-pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -20,8 +18,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # O backend só inicia depois que este teste passa, o que elimina
-      # o ConnectionRefusedError por race condition no startup.
+      # O backend só inicia depois que este teste passa (ver depends_on).
       test:
         [
           "CMD-SHELL",
@@ -35,16 +32,15 @@ services:
 
   backend:
     build:
-      # Contexto na raiz: a imagem copia backend/ e frontend/
+      # Contexto na raiz: a imagem copia backend/ e frontend/.
       context: .
       dockerfile: backend/Dockerfile
     depends_on:
       db:
         condition: service_healthy
     environment:
-      # Definido aqui (e não no .env) para que o backend sempre aponte
-      # para o serviço 'db' do compose, mesmo que o .env de alguém ainda
-      # tenha um DATABASE_URL antigo apontando para localhost.
+      # Definido aqui, e não no .env, para sempre apontar ao serviço 'db' do
+      # compose mesmo que o .env local tenha um DATABASE_URL de localhost.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-portaltcc}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       CHROMA_PERSIST_DIR: /app/chroma_db

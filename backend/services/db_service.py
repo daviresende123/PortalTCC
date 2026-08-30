@@ -1,8 +1,8 @@
 """
-PostgreSQL service — persistência dos CSVs enviados.
+Persistência dos CSVs enviados.
 
-Leitura analítica (o que o chatbot consulta) vive em query_service.py: aqui
-fica só a escrita, usada pelo fluxo de upload.
+Só a escrita, usada pelo fluxo de upload. A leitura analítica que o chatbot
+consulta vive em query_service.py.
 """
 import json
 import math
@@ -15,25 +15,21 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
-    """Handles all database operations for CSV data storage."""
+    """Operações de escrita dos dados de CSV no banco."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def save_dataframe(self, df: pd.DataFrame, file_name: str) -> tuple[int, int]:
         """
-        Persist a DataFrame to the database.
+        Salva um DataFrame: uma linha em `files` com os metadados e uma linha
+        por registro em `records`, com os dados em JSONB.
 
-        Inserts one row into `files` (metadata) and one row per DataFrame
-        row into `records` (data stored as JSONB).
-
-        Returns:
-            Tuple of (rows_saved, file_id).
+        Devolve a tupla (linhas_salvas, file_id).
         """
         columns = df.columns.tolist()
         rows_count = len(df)
 
-        # Insert file metadata and retrieve the generated id
         result = await self.session.execute(
             text("""
                 INSERT INTO files (file_name, rows_count, columns_list)
@@ -48,7 +44,7 @@ class DatabaseService:
         )
         file_id = result.scalar_one()
 
-        # Build the batch of records, converting NaN → None for valid JSON
+        # NaN vira None: JSON não tem representação para NaN.
         records = [
             {
                 "file_id": file_id,
@@ -73,17 +69,12 @@ class DatabaseService:
 
         await self.session.commit()
         logger.info(
-            f"Saved {rows_count} rows for file '{file_name}' (file_id={file_id})"
+            f"Salvas {rows_count} linhas de '{file_name}' (file_id={file_id})"
         )
         return rows_count, file_id
 
     async def get_stats(self) -> dict:
-        """
-        Return storage statistics.
-
-        Mirrors the shape of the former get_table_info() response so that
-        any existing consumer of /api/table-info keeps working.
-        """
+        """Estatísticas de armazenamento expostas por /api/table-info."""
         count_row = (
             await self.session.execute(
                 text("""

@@ -54,11 +54,8 @@ async def embed_records(
     file_name: str,
 ) -> int:
     """
-    Converte registros JSONB em documentos de texto, gera embeddings
-    e armazena no ChromaDB.
-
-    Returns:
-        Número de documentos embeddados.
+    Converte registros JSONB em texto, gera os embeddings e os armazena no
+    ChromaDB. Devolve o número de documentos indexados.
     """
     store = get_vector_store()
 
@@ -76,7 +73,7 @@ async def embed_records(
         })
         ids.append(f"file_{file_id}_record_{i}")
 
-    # Processa em lotes de 100 para respeitar limites da API
+    # Em lotes, para respeitar os limites de requisição da API.
     BATCH_SIZE = 100
     for start in range(0, len(texts), BATCH_SIZE):
         end = start + BATCH_SIZE

@@ -1,17 +1,13 @@
 """
 Camada de consulta analítica — o que as ferramentas do chat expõem ao modelo.
 
-Estas funções são *parametrizadas*, não específicas de pergunta: o modelo
-escolhe colunas, filtros e agrupamento, e o PostgreSQL calcula. É isso que
-substitui o antigo roteamento por regex, onde cada formato novo de pergunta
-exigia uma regra nova no código.
+As funções são parametrizadas, não específicas de pergunta: o modelo escolhe
+colunas, filtros e agrupamento, e o PostgreSQL calcula.
 
-Sobre segurança: os dados estão em JSONB, então nome de coluna aqui é
-*valor*, não identificador — `data ->> :col` é um parâmetro vinculado e não
-existe superfície de injeção. Ainda assim toda coluna é validada contra as
-colunas realmente presentes nos arquivos, para que o modelo receba um erro
-útil ("coluna X não existe, disponíveis: ...") em vez de um resultado vazio
-quando inventa um nome.
+Segurança: como os dados estão em JSONB, o nome da coluna é *valor* e não
+identificador (`data ->> :col` é parâmetro vinculado), então não há superfície
+de injeção. A validação de colunas existe para devolver ao modelo um erro útil
+quando ele inventa um nome, não como defesa.
 """
 import json
 import logging
@@ -21,14 +17,11 @@ from sqlalchemy import bindparam, text
 
 logger = logging.getLogger(__name__)
 
-# Colunas de texto com no máximo esta cardinalidade têm seus valores listados
-# em descrever_dataset(). Acima disso só o número de distintos é informado —
-# uma coluna "Name" com uma amostra por linha não ajuda no prompt.
+# Acima desta cardinalidade, descrever_dataset() informa só o número de valores
+# distintos da coluna de texto, sem listá-los.
 MAX_DISTINTOS_LISTADOS = 25
 
-# Teto de linhas devolvidas por consultar_registros(), independente do que o
-# modelo pedir. O objetivo das ferramentas é responder perguntas, não despejar
-# o dataset no contexto — para isso existe estatisticas().
+# Teto de linhas de consultar_registros(), independente do que o modelo pedir.
 LIMITE_MAXIMO_REGISTROS = 200
 
 _OPERADORES = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "=": "=", "!=": "!="}
@@ -40,9 +33,11 @@ class ColunaDesconhecida(ValueError):
 
 
 def _para_numero(valor: Any) -> float | None:
-    """Converte para float quando possível. As ferramentas recebem tudo como
-    string (o schema de function calling do Gemini lida mal com unions), então
-    é aqui que "1.5" vira 1.5 e "PlantsF1" continua texto."""
+    """Converte para float quando possível; devolve None caso contrário.
+
+    As ferramentas recebem todo valor como string (limitação do schema de
+    function calling do Gemini), então é aqui que "1.5" vira 1.5.
+    """
     if isinstance(valor, (int, float)) and not isinstance(valor, bool):
         return float(valor)
     if isinstance(valor, str):
@@ -75,8 +70,9 @@ async def colunas_conhecidas() -> list[str]:
 
 
 def _validar(colunas: list[str], conhecidas: list[str]) -> None:
-    """Levanta ColunaDesconhecida com a lista de opções — a mensagem volta ao
-    modelo como resultado da ferramenta, e ele se corrige na rodada seguinte."""
+    """Levanta ColunaDesconhecida listando as opções válidas: a mensagem volta
+    ao modelo como resultado da ferramenta, e ele se corrige na rodada seguinte.
+    """
     faltando = [c for c in colunas if c not in conhecidas]
     if faltando:
         raise ColunaDesconhecida(
@@ -115,15 +111,14 @@ def _clausula_filtros(
 
         numero = _para_numero(valor)
         if numero is None:
-            # Comparação textual: o valor não é número, então a coluna também
-            # não deve ser tratada como tal.
+            # Valor não numérico: comparação textual.
             partes.append(
                 f"(r.data ->> CAST(:{pc} AS text)) {_OPERADORES[operador]} :{pv}"
             )
             params[pv] = str(valor)
         else:
-            # jsonb_typeof antes do cast: sem isso uma célula de texto na
-            # coluna faz o ::numeric estourar e derruba a consulta inteira.
+            # jsonb_typeof antes do cast: sem ele, uma célula de texto na coluna
+            # faz o ::numeric estourar e derruba a consulta inteira.
             partes.append(
                 f"jsonb_typeof(r.data -> CAST(:{pc} AS text)) = 'number' "
                 f"AND (r.data ->> CAST(:{pc} AS text))::numeric "
@@ -138,17 +133,14 @@ def _where(clausula: str) -> str:
     return f"WHERE {clausula}" if clausula else ""
 
 
-# ---------------------------------------------------------------------------
-# Ferramenta 1 — descrever_dataset
-# ---------------------------------------------------------------------------
+# --- Ferramenta: descrever_dataset ---
 
 async def descrever_dataset() -> dict:
     """
     Estrutura do dataset: arquivos, colunas, tipos e valores distintos.
 
-    O resultado também é injetado no prompt do sistema a cada pergunta, para
-    o modelo já saber que existe uma coluna "Zn" sem gastar uma rodada de
-    ferramenta só para descobrir isso.
+    O resultado também alimenta o prompt do sistema a cada pergunta (ver
+    chat_service._resumo_esquema).
     """
     from db.connection import AsyncSessionLocal
 
@@ -169,7 +161,7 @@ async def descrever_dataset() -> dict:
             ).fetchall()
         ]
 
-        # Um único passe por todas as células classifica todas as colunas.
+        # Um único passe pelas células classifica todas as colunas.
         tipos = {
             r[0]: {"numericos": r[1], "textos": r[2]}
             for r in (
@@ -185,7 +177,7 @@ async def descrever_dataset() -> dict:
             ).fetchall()
         }
 
-        # Valores distintos, mas só das colunas de texto de baixa cardinalidade.
+        # Valores distintos das colunas de texto de baixa cardinalidade.
         distintos: dict[str, list[str]] = {}
         cardinalidade: dict[str, int] = {}
         for chave, valor, _freq, n_distintos in (
@@ -229,9 +221,7 @@ async def descrever_dataset() -> dict:
     return {"total_registros": total, "arquivos": arquivos, "colunas": colunas}
 
 
-# ---------------------------------------------------------------------------
-# Ferramenta 2 — estatisticas
-# ---------------------------------------------------------------------------
+# --- Ferramenta: estatisticas ---
 
 async def estatisticas(
     colunas: list[str] | None = None,
@@ -242,8 +232,8 @@ async def estatisticas(
     Estatística descritiva calculada em SQL, para uma, várias ou todas as
     colunas numéricas, opcionalmente agrupada e/ou filtrada.
 
-    Um único passe com jsonb_each cobre todas as colunas de uma vez: pedir
-    "todas" custa a mesma varredura que pedir uma.
+    Um único passe com jsonb_each cobre todas as colunas: pedir "todas" custa a
+    mesma varredura que pedir uma.
     """
     from db.connection import AsyncSessionLocal
 
@@ -255,7 +245,7 @@ async def estatisticas(
 
     clausula, params = _clausula_filtros(filtros, conhecidas)
 
-    # Grupo é sempre texto e nunca NULL: o LEFT JOIN com a CTE da moda usa
+    # Grupo nunca pode ser NULL: o LEFT JOIN com a CTE da moda usa
     # USING(grupo, key), e NULL não casa com NULL em join.
     if agrupar_por:
         expr_grupo = "COALESCE(r.data ->> CAST(:grp AS text), '(vazio)')"
@@ -352,9 +342,7 @@ async def estatisticas(
     return saida
 
 
-# ---------------------------------------------------------------------------
-# Ferramenta 3 — consultar_registros
-# ---------------------------------------------------------------------------
+# --- Ferramenta: consultar_registros ---
 
 async def consultar_registros(
     colunas: list[str] | None = None,
@@ -378,8 +366,8 @@ async def consultar_registros(
 
     if ordenar_por:
         params["ord"] = ordenar_por
-        # O CASE ordena numericamente quando a célula é número e cai para
-        # texto quando não é, sem precisar saber o tipo da coluna de antemão.
+        # O CASE ordena numericamente quando a célula é número e cai para texto
+        # quando não é, sem precisar saber o tipo da coluna de antemão.
         order_by = f"""
             ORDER BY CASE
                        WHEN jsonb_typeof(r.data -> CAST(:ord AS text)) = 'number'

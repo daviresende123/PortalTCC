@@ -1,4 +1,4 @@
-"""Script auxiliar para contar embeddings no ChromaDB."""
+"""Conta os embeddings armazenados no ChromaDB."""
 from services.embedding_service import get_vector_store
 
 store = get_vector_store()

@@ -1,6 +1,4 @@
-/* ===================================
-   Navegação
-   =================================== */
+/* --- Navegação --- */
 .nav-links {
     margin-top: 15px;
     display: flex;
@@ -29,9 +27,7 @@
     border-color: var(--bg-white);
 }
 
-/* ===================================
-   Layout do Chat
-   =================================== */
+/* --- Layout do Chat --- */
 .chat-container {
     max-width: 900px;
     display: flex;
@@ -46,9 +42,7 @@
     padding: 0 30px 30px;
 }
 
-/* ===================================
-   Área de Mensagens
-   =================================== */
+/* --- Área de Mensagens --- */
 .chat-messages {
     flex-grow: 1;
     overflow-y: auto;
@@ -73,9 +67,7 @@
     border-radius: 3px;
 }
 
-/* ===================================
-   Balões de Mensagem
-   =================================== */
+/* --- Balões de Mensagem --- */
 .message-bubble {
     max-width: 80%;
     padding: 14px 20px;
@@ -118,9 +110,7 @@
     border-bottom-left-radius: 4px;
 }
 
-/* ===================================
-   Markdown dentro dos balões
-   =================================== */
+/* --- Markdown dentro dos balões --- */
 .msg-content p {
     margin: 0 0 0.5em;
 }
@@ -181,9 +171,7 @@
     padding: 0;
 }
 
-/* ===================================
-   Indicador de Digitação
-   =================================== */
+/* --- Indicador de Digitação --- */
 .typing-indicator {
     align-self: flex-start;
     background: var(--earth-light);
@@ -222,9 +210,7 @@
     }
 }
 
-/* ===================================
-   Área de Input
-   =================================== */
+/* --- Área de Input --- */
 .chat-input-area {
     display: flex;
     gap: 12px;
@@ -298,9 +284,7 @@
     background: var(--earth-light);
 }
 
-/* ===================================
-   Responsividade
-   =================================== */
+/* --- Responsividade --- */
 @media (max-width: 600px) {
     .chat-container {
         min-height: auto;
@@ -338,8 +322,7 @@
     }
 }
 
-/* Rótulo da etapa em execução ("Calculando estatísticas…"), exibido ao lado
-   dos pontinhos do indicador de digitação enquanto o modelo consulta o banco. */
+/* Rótulo da etapa em execução, ao lado dos pontinhos do indicador. */
 .typing-indicator .typing-status {
     font-size: 0.85rem;
     font-style: normal;

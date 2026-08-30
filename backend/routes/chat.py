@@ -15,10 +15,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-# Resposta usada quando não há chave da API configurada. Permite que a
-# aplicação suba e que o fluxo de upload seja demonstrado sem credenciais,
-# em vez de estourar uma exceção que o frontend exibiria como falha de
-# conexão com o servidor. Renderizada como Markdown no balão do chat.
+# Sem chave configurada o chat responde isto (em Markdown) em vez de estourar
+# uma exceção, para que o fluxo de upload continue utilizável sem credenciais.
 NO_API_KEY_MESSAGE = (
     "⚠️ **Chave da API do Google não configurada.**\n\n"
     "O chat precisa de uma chave do Gemini para responder. "
@@ -36,11 +34,8 @@ async def _com_heartbeat(gerador, intervalo: float):
     Repassa os eventos do gerador e emite ("heartbeat", None) sempre que ele
     passar `intervalo` segundos calado.
 
-    Sem isso, o chat continua vulnerável ao modo de falha original: enquanto o
-    Gemini raciocina antes de emitir o primeiro token, nenhum byte trafega, o
-    timer de ociosidade do navegador expira e a requisição é abortada mesmo
-    com o servidor trabalhando normalmente. Os eventos de status cobrem as
-    pausas entre ferramentas; o heartbeat cobre todas as outras.
+    Enquanto o Gemini raciocina antes do primeiro token nenhum byte trafega, e
+    o timer de ociosidade do navegador abortaria a requisição.
     """
     fila: asyncio.Queue = asyncio.Queue()
 
@@ -49,7 +44,7 @@ async def _com_heartbeat(gerador, intervalo: float):
             async for evento in gerador:
                 await fila.put(("evento", evento))
             await fila.put(("fim", None))
-        except Exception as exc:  # repassado à tarefa consumidora
+        except Exception as exc:
             await fila.put(("erro", exc))
 
     tarefa = asyncio.create_task(produzir())
@@ -73,8 +68,8 @@ def _mensagem_amigavel(exc: Exception) -> str:
     """
     Traduz falhas conhecidas da API em algo acionável.
 
-    Sem isso o balão de erro recebe o blob bruto do Google — dezenas de linhas
-    de `quota_dimensions` e `violations` que não dizem ao usuário o que fazer.
+    O erro cru do Google traz dezenas de linhas de `quota_dimensions` que não
+    dizem ao usuário o que fazer.
     """
     texto = str(exc)
     if "429" in texto or "quota" in texto.lower():
@@ -149,15 +144,9 @@ async def chat_stream_endpoint(request: ChatRequest):
             )
             async for tipo, evento in eventos:
                 if tipo == "heartbeat":
-                    # Comentário SSE: ignorado pelo cliente, mas é um byte na
-                    # rede, que é tudo que o timer de ociosidade precisa ver.
+                    # Comentário SSE: o cliente ignora, mas é um byte na rede.
                     yield ": keep-alive\n\n"
                     continue
-                # Eventos de status ("Calculando estatísticas…") descrevem qual
-                # ferramenta está rodando. Além de informar o usuário, são o que
-                # mantém bytes trafegando enquanto o modelo consulta o banco e
-                # nenhum token de resposta é gerado — sem eles o timer de
-                # ociosidade do frontend aborta uma requisição saudável.
                 chave = "status" if evento["tipo"] == "status" else "token"
                 data = json.dumps({chave: evento["texto"]}, ensure_ascii=False)
                 yield f"data: {data}\n\n"
@@ -173,8 +162,8 @@ async def chat_stream_endpoint(request: ChatRequest):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # Sem isso o Nginx/proxy bufferiza o SSE e os eventos de status
-            # só chegam junto com a resposta, anulando o efeito.
+            # Sem isto um proxy bufferiza o SSE e os eventos de status só
+            # chegam junto com a resposta.
             "X-Accel-Buffering": "no",
         },
     )

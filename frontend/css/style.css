@@ -1,6 +1,4 @@
-/* ===================================
-   Variáveis CSS - Paleta Cafeeira
-   =================================== */
+/* --- Variáveis CSS - Paleta Cafeeira --- */
 :root {
     /* Cores do café */
     --coffee-dark: #3E2723;
@@ -46,9 +44,7 @@
     --transition-normal: all 0.3s ease;
 }
 
-/* ===================================
-   Reset e Configurações Gerais
-   =================================== */
+/* --- Reset e Configurações Gerais --- */
 * {
     margin: 0;
     padding: 0;
@@ -74,9 +70,7 @@ body {
     overflow: hidden;
 }
 
-/* ===================================
-   Cabeçalho
-   =================================== */
+/* --- Cabeçalho --- */
 header {
     background: var(--gradient-main);
     color: var(--bg-white);
@@ -95,9 +89,7 @@ header p {
     opacity: 0.95;
 }
 
-/* ===================================
-   Conteúdo Principal
-   =================================== */
+/* --- Conteúdo Principal --- */
 main {
     padding: 40px 30px;
 }
@@ -109,9 +101,7 @@ main {
     font-size: 1.8em;
 }
 
-/* ===================================
-   Área de Upload
-   =================================== */
+/* --- Área de Upload --- */
 .upload-area {
     border: 3px dashed var(--plant-green);
     border-radius: var(--border-radius-md);
@@ -146,9 +136,7 @@ main {
     margin-bottom: 20px;
 }
 
-/* ===================================
-   Botões
-   =================================== */
+/* --- Botões --- */
 .btn-select,
 .btn-upload {
     background: var(--gradient-main);
@@ -187,9 +175,7 @@ main {
     opacity: 0.6;
 }
 
-/* ===================================
-   Informações do Arquivo
-   =================================== */
+/* --- Informações do Arquivo --- */
 .file-info {
     background: var(--earth-light);
     border-left: 4px solid var(--plant-green);
@@ -213,9 +199,7 @@ main {
     font-weight: 600;
 }
 
-/* ===================================
-   Mensagens
-   =================================== */
+/* --- Mensagens --- */
 .message {
     margin-top: 20px;
     padding: 15px;
@@ -246,9 +230,7 @@ main {
     display: block;
 }
 
-/* ===================================
-   Rodapé
-   =================================== */
+/* --- Rodapé --- */
 footer {
     background: var(--bg-light);
     padding: 20px;
@@ -257,9 +239,7 @@ footer {
     font-size: 0.9em;
 }
 
-/* ===================================
-   Responsividade
-   =================================== */
+/* --- Responsividade --- */
 @media (max-width: 600px) {
     header h1 {
         font-size: 2em;

@@ -1,16 +1,9 @@
 """
 Serviço de chat — LangChain + Gemini com function calling.
 
-O modelo não recebe mais os dados no prompt. Ele recebe o *esquema* do
-dataset e a descrição de quatro ferramentas (ver services/tools.py), e decide
-sozinho quais chamar. O PostgreSQL calcula os números, o ChromaDB busca por
-semelhança, e o modelo apenas interpreta os resultados.
-
-Isso substitui o roteamento anterior, feito por expressões regulares sobre a
-pergunta: cada formato novo de pergunta exigia uma regra nova, e perguntas
-legítimas que não casassem com nenhuma regra caíam silenciosamente no caminho
-errado. Agora quem interpreta a intenção é o modelo, e quem calcula é o banco
-— cada um no que é bom.
+O modelo recebe o *esquema* do dataset e a descrição das ferramentas
+(services/tools.py), e decide sozinho quais chamar. O PostgreSQL calcula os
+números, o ChromaDB busca por semelhança, e o modelo interpreta os resultados.
 """
 import json
 import logging
@@ -31,12 +24,8 @@ from services.query_service import descrever_dataset
 
 logger = logging.getLogger(__name__)
 
-# Memória de sessão em memória: session_id -> [(pergunta, resposta)]
-#
-# Guardamos só o texto final de cada troca, não as mensagens de ferramenta.
-# Resultados de ferramenta são grandes e só interessam dentro da rodada em
-# que foram pedidos; mantê-los no histórico encheria o contexto em poucas
-# perguntas sem melhorar a resposta.
+# session_id -> [(pergunta, resposta)]. Guarda só o texto final de cada troca:
+# resultados de ferramenta são grandes e só interessam dentro da própria rodada.
 _sessions: Dict[str, List[tuple]] = {}
 
 MAX_TROCAS_HISTORICO = 10
@@ -83,8 +72,6 @@ def _get_llm() -> ChatGoogleGenerativeAI:
         model=settings.llm_model,
         google_api_key=settings.google_api_key,
         temperature=settings.llm_temperature,
-        # Sem timeout uma chamada sob rate limit fica em retry indefinido e o
-        # chat trava carregando para sempre; melhor falhar de forma visível.
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
     )
@@ -98,11 +85,10 @@ def _get_chat_history(session_id: str) -> List[tuple]:
 
 def _resumo_esquema(descricao: dict) -> str:
     """
-    Condensa descrever_dataset() em ~200 tokens para o prompt do sistema.
+    Condensa descrever_dataset() para o prompt do sistema.
 
-    Vai no prompt porque é barato e evita uma rodada de ferramenta inteira só
-    para o modelo descobrir que existe uma coluna chamada "Zn". Os *dados*
-    nunca entram aqui — só a estrutura.
+    Evita uma rodada de ferramenta só para o modelo descobrir os nomes das
+    colunas. Apenas a estrutura entra aqui, nunca os dados.
     """
     linhas = []
 
@@ -168,12 +154,10 @@ async def chat_stream(
     session_id: str = "default",
 ) -> AsyncGenerator[dict, None]:
     """
-    Processa uma pergunta e emite eventos.
+    Processa uma pergunta e emite eventos {"tipo": "status"|"token", "texto"}.
 
-    Cada evento é um dict {"tipo": "status"|"token", "texto": str}. Os eventos
-    de status descrevem qual ferramenta está rodando — servem tanto para o
-    usuário acompanhar quanto para manter bytes trafegando no SSE durante as
-    rodadas de ferramenta, quando nenhum token de resposta é gerado.
+    Os eventos de status informam qual ferramenta está rodando e mantêm bytes
+    trafegando no SSE enquanto nenhum token de resposta é gerado.
     """
     t_inicio = time.perf_counter()
     t_primeiro_token = None
@@ -207,8 +191,8 @@ async def chat_stream(
         if not tool_calls:
             break
 
-        # Última iteração permitida: não adianta executar ferramentas cujo
-        # resultado o modelo não terá chance de ler.
+        # Na última iteração não adianta executar ferramentas cujo resultado
+        # o modelo não terá chance de ler.
         if iteracao == settings.chat_max_iteracoes - 1:
             logger.warning(
                 f"Limite de {settings.chat_max_iteracoes} rodadas de ferramenta "
@@ -232,9 +216,8 @@ async def chat_stream(
         historico.append((question, resposta_final))
         del historico[:-MAX_TROCAS_HISTORICO]
     else:
-        # O modelo consumiu todas as rodadas chamando ferramentas e nunca
-        # redigiu nada. Raro, mas sem isso o usuário recebe um balão vazio e
-        # não tem como saber o que houve. A troca não entra no histórico.
+        # O modelo gastou todas as rodadas em ferramentas sem redigir nada;
+        # sem isto o usuário receberia um balão vazio. Não entra no histórico.
         logger.warning(f"Nenhum texto gerado para: {question[:80]!r}")
         yield {"tipo": "token", "texto": SEM_RESPOSTA}
 
