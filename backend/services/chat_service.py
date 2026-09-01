@@ -300,8 +300,13 @@ async def chat_stream(
             yield {"tipo": "status", "texto": tools.rotulo(nome, argumentos)}
             logger.info(f"Ferramenta: {nome}({json.dumps(argumentos, ensure_ascii=False)})")
             resultado = await tools.executar(nome, argumentos)
+            # O Gemini 3 valida que todo FunctionResponse traga o nome da
+            # ferramenta além do call_id, e recusa a requisição inteira se
+            # faltar. O 2.5 ignora o campo, então isto é seguro nos dois.
             mensagens.append(
-                ToolMessage(content=resultado, tool_call_id=chamada["id"])
+                ToolMessage(
+                    content=resultado, tool_call_id=chamada["id"], name=nome
+                )
             )
 
     if resposta_final.strip():
