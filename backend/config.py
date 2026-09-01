@@ -1,4 +1,6 @@
 """Configurações da aplicação."""
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
 
@@ -30,8 +32,16 @@ class Settings(BaseSettings):
     embedding_model: str = "models/gemini-embedding-001"
 
     # LLM
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.7-flash"
+    # Não é mais enviada ao modelo. A partir do Gemini 3 a documentação manda
+    # deixar temperature, top_p e top_k no padrão: valor fora do padrão degrada
+    # o raciocínio e pode até dar 400. O campo continua aqui só para não quebrar
+    # quem já tem LLM_TEMPERATURE no .env — quem governa o estilo das respostas
+    # agora é exclusivamente o system prompt.
     llm_temperature: float = 0.3
+    # Profundidade do raciocínio, no lugar do antigo thinking_budget do 2.5.
+    # `medium` é o default do Google; `low` corta latência se ela incomodar.
+    llm_thinking_level: Literal["low", "medium", "high"] = "medium"
     # Sem timeout, uma chamada sob rate limit fica em retry indefinido.
     llm_timeout_seconds: int = 90
     llm_max_retries: int = 2

@@ -161,10 +161,13 @@ SEM_RESPOSTA = (
 
 
 def _get_llm() -> ChatGoogleGenerativeAI:
+    # `temperature` fica de fora de propósito: ver o comentário em config.py.
+    # Não basta não querer mudá-la — o cliente só omite a temperatura da
+    # requisição quando o parâmetro não é passado.
     return ChatGoogleGenerativeAI(
         model=settings.llm_model,
         google_api_key=settings.google_api_key,
-        temperature=settings.llm_temperature,
+        thinking_level=settings.llm_thinking_level,
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
     )
