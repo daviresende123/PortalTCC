@@ -214,16 +214,29 @@ def _resumo_esquema(descricao: dict) -> str:
     return "\n".join(linhas)
 
 
+# Blocos em que o modelo raciocina antes de responder. No Gemini 3 o conteúdo
+# vem sempre como lista de blocos tipados, e o pensamento é um deles: é material
+# interno, não a resposta, e não pode chegar ao usuário.
+TIPOS_DE_RACIOCINIO = {"thinking", "reasoning"}
+
+
 def _texto_do_chunk(conteudo: Any) -> str:
     """Normaliza o content de um chunk — o Gemini às vezes devolve lista."""
     if isinstance(conteudo, str):
         return conteudo
-    if isinstance(conteudo, list):
-        return "".join(
-            parte if isinstance(parte, str) else parte.get("text", "")
-            for parte in conteudo
-        )
-    return ""
+    if not isinstance(conteudo, list):
+        return ""
+
+    partes = []
+    for parte in conteudo:
+        if isinstance(parte, str):
+            partes.append(parte)
+        elif isinstance(parte, dict) and parte.get("type") not in TIPOS_DE_RACIOCINIO:
+            # O texto do bloco de raciocínio mora em "thinking"/"reasoning", e não
+            # em "text" — filtrar pelo tipo é o que garante que uma variação do
+            # bloco (ou um "text" junto do pensamento) não escorra para a resposta.
+            partes.append(parte.get("text") or "")
+    return "".join(partes)
 
 
 async def _montar_mensagens(question: str, session_id: str) -> list | None:

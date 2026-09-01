@@ -188,6 +188,26 @@ def test_texto_do_chunk_ignora_conteudo_nao_textual():
     assert _texto_do_chunk([{"functionCall": {"name": "estatisticas"}}]) == ""
 
 
+def test_texto_do_chunk_descarta_o_raciocinio_do_modelo():
+    # No Gemini 3 o conteúdo vem em blocos tipados e o pensamento é um deles:
+    # o que o usuário lê é só o bloco de texto.
+    conteudo = [
+        {"type": "thinking", "thinking": "Preciso chamar estatisticas em Zn."},
+        {"type": "text", "text": "A média de Zn é 12,4."},
+    ]
+    assert _texto_do_chunk(conteudo) == "A média de Zn é 12,4."
+
+
+def test_texto_do_chunk_descarta_raciocinio_com_texto_junto():
+    # Filtrar pelo tipo, e não pela ausência da chave "text", é o que segura o
+    # bloco de raciocínio que venha acompanhado de texto.
+    conteudo = [
+        {"type": "reasoning", "reasoning": "hmm", "text": "hmm"},
+        {"type": "text", "text": "Resposta."},
+    ]
+    assert _texto_do_chunk(conteudo) == "Resposta."
+
+
 # --- routes.chat: tradução de falhas da API ---
 
 from routes.chat import _mensagem_amigavel
