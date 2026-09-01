@@ -5,10 +5,15 @@ As descrições em ESQUEMAS são enviadas ao Gemini como especificação das
 ferramentas: são efetivamente parte do prompt, e é por elas que o modelo
 decide entre estatística exata e busca semântica. Ajuste-as com esse cuidado.
 
-Os schemas são escritos à mão em vez de inferidos das assinaturas com @tool
-porque o conversor do langchain-google-genai 2.0.8 emite arrays sem o campo
-`items` e o Gemini rejeita a requisição inteira com
-"function_declarations[...].items: missing field".
+Os schemas são escritos à mão, e não inferidos das assinaturas com @tool. A
+origem disso foi um bug: o conversor do langchain-google-genai 2.0.8 emitia
+arrays sem o campo `items`, e o Gemini rejeitava a requisição inteira com
+"function_declarations[...].items: missing field". Esse bug **não existe mais**
+na versão em uso — o conversor atual emite `items` corretamente.
+
+Eles continuam à mão por escolha: como cada descrição é parte do prompt (ver
+acima), escrevê-las aqui deixa o texto enviado ao modelo visível e editável num
+lugar só, em vez de espalhado por docstrings.
 """
 import asyncio
 import json

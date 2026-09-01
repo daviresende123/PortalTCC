@@ -67,8 +67,13 @@ O histórico é mantido em memória por `session_id`, limitado às 10 últimas
 trocas enviadas ao modelo. Reiniciar a aplicação limpa as sessões.
 
 Modelos configuráveis pelo `.env`: `LLM_MODEL` (padrão
-`gemini-2.5-flash`), `EMBEDDING_MODEL` (padrão
-`models/gemini-embedding-001`) e `LLM_TEMPERATURE` (padrão `0.3`).
+`gemini-3.7-flash`), `EMBEDDING_MODEL` (padrão
+`models/gemini-embedding-001`) e `LLM_THINKING_LEVEL` (padrão `medium`).
+
+`LLM_TEMPERATURE` continua sendo lida, mas **não é mais enviada ao modelo**: a
+partir do Gemini 3 a recomendação é deixar temperature, top_p e top_k no padrão,
+porque valor fora do padrão degrada o raciocínio. Quem governa o estilo das
+respostas passou a ser exclusivamente o prompt do sistema.
 
 ---
 
@@ -127,10 +132,13 @@ enviado ao modelo.
 | `GOOGLE_API_KEY` | vazio | Chave do Gemini |
 | `CHROMA_PERSIST_DIR` | `chroma_db` | Diretório de persistência do ChromaDB |
 | `CHROMA_COLLECTION_NAME` | `portaltcc_records` | Nome da coleção |
-| `LLM_MODEL` | `gemini-2.5-flash` | Modelo de linguagem |
+| `LLM_MODEL` | `gemini-3.7-flash` | Modelo de linguagem |
+| `LLM_THINKING_LEVEL` | `medium` | Profundidade do raciocínio: `low`, `medium` ou `high` |
 | `EMBEDDING_MODEL` | `models/gemini-embedding-001` | Modelo de embeddings |
-| `LLM_TEMPERATURE` | `0.3` | Temperatura do modelo |
+| `LLM_TEMPERATURE` | `0.3` | Lida, mas **não enviada** ao modelo — ver acima |
 | `FRONTEND_URL` | `http://localhost:5500` | Origem adicional liberada no CORS |
 
 Rodando via Docker Compose, `DATABASE_URL` e `CHROMA_PERSIST_DIR` são
-definidos pelo próprio `docker-compose.yml`.
+definidos pelo próprio `docker-compose.yml`. `LLM_MODEL` e
+`LLM_THINKING_LEVEL` são repassados do `.env`, e ficam ausentes do container
+quando não estiverem lá — é assim que os padrões acima continuam valendo.
