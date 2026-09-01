@@ -35,3 +35,5 @@ backend/chroma_db/
 # Sistema Operacional
 .DS_Store
 Thumbs.db
+
+MIGRACAO-GEMINI-3.7.md
