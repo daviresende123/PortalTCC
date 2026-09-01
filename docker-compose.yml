@@ -46,6 +46,12 @@ services:
       CHROMA_PERSIST_DIR: /app/chroma_db
       HOST: 0.0.0.0
       PORT: 8000
+      # Sem valor de propósito: o compose repassa o que estiver no .env e, se
+      # não houver nada, a variável nem chega ao container — o default do
+      # config.py continua valendo. Escrever ${LLM_MODEL:-} aqui seria o
+      # contrário: mandaria string vazia e apagaria esse default.
+      LLM_MODEL:
+      LLM_THINKING_LEVEL:
     ports:
       - "8000:8000"
     volumes:
