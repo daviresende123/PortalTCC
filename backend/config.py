@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        # O mesmo .env alimenta o docker-compose, que precisa de POSTGRES_USER,
+        # POSTGRES_PASSWORD e POSTGRES_DB para montar a URL do banco e o
+        # healthcheck. Nenhuma delas é campo daqui, e o default do
+        # pydantic-settings é proibir entradas desconhecidas vindas do arquivo
+        # — o que fazia um `cp .env.example .env` derrubar a aplicação com
+        # extra_forbidden ao rodar fora do Docker. Em container o erro não
+        # aparecia porque variáveis de ambiente desconhecidas, essas sim, já
+        # eram ignoradas.
+        extra = "ignore"
 
     @property
     def max_file_size_bytes(self) -> int:
